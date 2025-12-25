@@ -1,4 +1,10 @@
 //! Graph layout algorithms.
+//!
+//! This module provides layout algorithms for positioning nodes in the graph:
+//!
+//! - [`apply_force_directed`] - Physics-based layout with repulsion and attraction forces
+//! - [`apply_hierarchical`] - Layer-based layout with sources at top, sinks at bottom
+//! - [`apply_layout`] - Dispatcher that applies the appropriate layout based on mode
 
 use crate::graph::MessageFlowGraph;
 use egui::{Pos2, Rect, Vec2};
@@ -7,6 +13,14 @@ use std::collections::HashMap;
 use super::types::LayoutMode;
 
 /// Apply force-directed layout to node positions.
+///
+/// Uses a physics simulation where:
+/// - All nodes repel each other (prevents overlap)
+/// - Connected nodes attract each other (clusters related modules)
+/// - A gentle center gravity keeps the graph from drifting
+///
+/// Node positions are updated incrementally each frame, with velocity
+/// damping to eventually reach a stable state.
 pub fn apply_force_directed(
     graph: &MessageFlowGraph,
     positions: &mut HashMap<String, Pos2>,
@@ -104,7 +118,15 @@ pub fn apply_force_directed(
     }
 }
 
-/// Apply hierarchical layout (sources at top, sinks at bottom).
+/// Apply hierarchical layout with sources at top, sinks at bottom.
+///
+/// Classifies nodes into three tiers:
+/// - **Sources** (top): Modules that only write messages
+/// - **Middle**: Modules that both read and write messages
+/// - **Sinks** (bottom): Modules that only read messages
+///
+/// This layout is useful for understanding data flow direction through
+/// the system.
 pub fn apply_hierarchical(
     graph: &MessageFlowGraph,
     positions: &mut HashMap<String, Pos2>,
@@ -169,7 +191,10 @@ pub fn apply_hierarchical(
     }
 }
 
-/// Apply the appropriate layout based on mode.
+/// Apply the appropriate layout algorithm based on the current mode.
+///
+/// This is the main entry point for layout updates, called each frame
+/// to position nodes according to the selected [`LayoutMode`].
 pub fn apply_layout(
     mode: LayoutMode,
     graph: &MessageFlowGraph,

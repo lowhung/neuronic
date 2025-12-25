@@ -54,45 +54,85 @@ neuronic --config neuronic.toml --debug
 
 ## Configuration
 
+Neuronic loads configuration from multiple sources (in order of priority):
+
+1. `config.default.toml` - Default settings (shipped with the project)
+2. `neuronic.toml` - User overrides (or custom path via `--config`)
+3. Environment variables with `NEURONIC_` prefix
+
+Copy `config.default.toml` to `neuronic.toml` and customize as needed:
+
 ```toml
-[message-bus.external]
-class = "rabbit-mq"
+# RabbitMQ connection (Option 1: simple format)
+[rabbitmq]
 url = "amqp://127.0.0.1:5672/%2f"
-exchange = "your-exchange"
+exchange = "caryatid"
 
+# RabbitMQ connection (Option 2: Caryatid-style format)
+# [message-bus.external]
+# class = "rabbit-mq"
+# url = "amqp://127.0.0.1:5672/%2f"
+# exchange = "caryatid"
+
+# Topic filtering - hide noisy topics
 [filter]
-ignored_topics = ["noisy.topic.prefix."]
+ignored_topics = ["cardano.query."]
 
+# Health thresholds
 [graph]
-backlog_warning = 100
-backlog_critical = 1000
-pending_warning_ms = 500
-pending_critical_ms = 2000
+backlog_warning = 100      # Messages before warning state
+backlog_critical = 1000    # Messages before critical state
+pending_warning_ms = 500   # Milliseconds before warning
+pending_critical_ms = 2000 # Milliseconds before critical
 ```
 
-Environment variables are also supported with the `NEURONIC_` prefix.
+Environment variables are also supported with the `NEURONIC_` prefix (e.g., `NEURONIC_GRAPH_BACKLOG_WARNING=50`).
 
 ## Layout modes
 
 - **Force-directed** (default) - nodes repel, edges attract. Organic clustering.
 - **Hierarchical** - sources at top, sinks at bottom. Useful for understanding dataflow direction.
 
+## Library Usage
+
+Neuronic can also be used as a library to embed visualization in your own application:
+
+```rust
+use neuronic::{MessageFlowGraph, HealthConfig, NeuronicConfig};
+
+// Create a graph with custom thresholds
+let graph = MessageFlowGraph::new_with_config(
+    HealthConfig::default(),
+    vec!["noisy.topic.".to_string()],
+);
+
+// Update from buswatch snapshots
+graph.update_from_snapshot(&snapshot);
+```
+
+See the [API documentation](https://docs.rs/neuronic) for full details.
+
 ## Project structure
 
 ```
 src/
+├── lib.rs            # Library entry point
 ├── main.rs           # CLI entry point
 ├── config.rs         # Configuration loading
 ├── subscriber.rs     # RabbitMQ subscriber
 ├── graph.rs          # Graph model (petgraph)
 └── ui/
+    ├── mod.rs        # UI module exports
     ├── app.rs        # eframe application
     ├── theme.rs      # Color schemes
     ├── drawing.rs    # Bezier edge rendering
     ├── input.rs      # Mouse/keyboard handling
     ├── layout.rs     # Force-directed simulation
     ├── animations.rs # Particle and pulse effects
-    └── panels.rs     # Side panels
+    ├── panels.rs     # Side panels
+    ├── search.rs     # Fuzzy search
+    ├── export.rs     # SVG export
+    └── types.rs      # Shared types
 ```
 
 ## Dependencies

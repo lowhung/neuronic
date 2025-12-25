@@ -1,4 +1,7 @@
 //! Graph rendering functions.
+//!
+//! This module handles all visual rendering of the message flow graph,
+//! including nodes, edges, particles, and the minimap.
 
 use crate::graph::{HealthStatus, MessageFlowGraph, ModuleNode};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
@@ -8,6 +11,17 @@ use super::theme::Theme;
 use super::types::{NodeActivity, PulseRing, SynapseParticle};
 
 /// Calculate a point on a quadratic Bezier curve.
+///
+/// # Arguments
+///
+/// * `p0` - Start point
+/// * `p1` - Control point
+/// * `p2` - End point
+/// * `t` - Parameter in range [0, 1] where 0 = start, 1 = end
+///
+/// # Returns
+///
+/// The interpolated position on the curve.
 pub fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
     let t = t.clamp(0.0, 1.0);
     let mt = 1.0 - t;
@@ -17,7 +31,16 @@ pub fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
     )
 }
 
-/// Generate points along a quadratic Bezier curve.
+/// Generate evenly-spaced points along a quadratic Bezier curve.
+///
+/// Used for drawing smooth curved edges between nodes.
+///
+/// # Arguments
+///
+/// * `p0` - Start point
+/// * `p1` - Control point
+/// * `p2` - End point
+/// * `segments` - Number of line segments to generate
 pub fn bezier_points(p0: Pos2, p1: Pos2, p2: Pos2, segments: usize) -> Vec<Pos2> {
     (0..=segments)
         .map(|i| {
@@ -27,7 +50,20 @@ pub fn bezier_points(p0: Pos2, p1: Pos2, p2: Pos2, segments: usize) -> Vec<Pos2>
         .collect()
 }
 
-/// Calculate tangent direction at a point on a quadratic Bezier curve.
+/// Calculate the tangent direction at a point on a quadratic Bezier curve.
+///
+/// Used for orienting arrows and particles along edge curves.
+///
+/// # Arguments
+///
+/// * `p0` - Start point
+/// * `p1` - Control point
+/// * `p2` - End point
+/// * `t` - Parameter in range [0, 1]
+///
+/// # Returns
+///
+/// A normalized direction vector tangent to the curve at parameter `t`.
 pub fn bezier_tangent(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Vec2 {
     let t = t.clamp(0.0, 1.0);
     let mt = 1.0 - t;
@@ -39,6 +75,12 @@ pub fn bezier_tangent(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Vec2 {
 }
 
 /// Linearly interpolate between two colors.
+///
+/// # Arguments
+///
+/// * `a` - Start color (at t=0)
+/// * `b` - End color (at t=1)
+/// * `t` - Interpolation factor, clamped to [0, 1]
 pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     Color32::from_rgba_unmultiplied(
@@ -49,7 +91,9 @@ pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
-/// Format a rate value nicely.
+/// Format a message rate for display.
+///
+/// Automatically selects appropriate units (M/s, k/s, /s) based on magnitude.
 pub fn format_rate(rate: f64) -> String {
     if rate >= 1_000_000.0 {
         format!("{:.1}M/s", rate / 1_000_000.0)
@@ -64,7 +108,10 @@ pub fn format_rate(rate: f64) -> String {
     }
 }
 
-/// Get neuron color based on health and activity.
+/// Determine the display color for a node based on health status and activity.
+///
+/// Colors transition from base → active → firing as activity increases,
+/// with the base color determined by health status (healthy/warning/critical).
 pub fn get_neuron_color(
     node: &ModuleNode,
     activity: Option<&NodeActivity>,
@@ -347,7 +394,10 @@ impl<'a> DrawContext<'a> {
     }
 }
 
-/// Draw a minimap in the corner.
+/// Draw a minimap overview in the bottom-right corner.
+///
+/// Shows all nodes as dots with a rectangle indicating the current viewport.
+/// Helps with navigation when zoomed in on large graphs.
 pub fn draw_minimap(
     ui: &mut egui::Ui,
     _graph: &MessageFlowGraph,

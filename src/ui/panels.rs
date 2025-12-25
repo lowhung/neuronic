@@ -1,4 +1,11 @@
 //! Side panels: details, legend, filters, groups.
+//!
+//! UI panels that provide additional information and controls:
+//!
+//! - Details panel: Shows metrics for the selected node
+//! - Legend: Explains visual indicators
+//! - Filter panel: Configure topic filtering
+//! - Group panel: Organize nodes by patterns
 
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
@@ -6,7 +13,10 @@ use egui::{Color32, Vec2};
 use super::theme::Theme;
 use super::types::{NodeActivity, NodeGroup};
 
-/// Draw the details panel for a selected node.
+/// Draw the details panel showing information about the selected node.
+///
+/// Displays health status, message counts, rates, and topic connections
+/// for the currently selected module.
 pub fn draw_details_panel(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
@@ -57,7 +67,10 @@ pub fn draw_details_panel(
     }
 }
 
-/// Draw the legend panel.
+/// Draw the legend panel explaining visual indicators.
+///
+/// Shows color meanings for health status, and explains controls
+/// for interacting with the graph.
 pub fn draw_legend(ui: &mut egui::Ui, theme: &Theme) {
     ui.heading("Legend");
     ui.separator();
@@ -97,7 +110,10 @@ fn draw_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
     });
 }
 
-/// Draw the topic filter panel.
+/// Draw the topic filter panel for hiding noisy topics.
+///
+/// Returns `true` if filters were modified, indicating the graph
+/// should be updated.
 pub fn draw_filter_panel(
     ui: &mut egui::Ui,
     filters: &mut Vec<String>,
@@ -149,7 +165,10 @@ pub fn draw_filter_panel(
     changed
 }
 
-/// Draw the node grouping panel.
+/// Draw the node grouping panel for organizing nodes by patterns.
+///
+/// Allows creating groups based on name suffixes (e.g., "_state", "_validator")
+/// to visually cluster related modules.
 pub fn draw_group_panel(
     ui: &mut egui::Ui,
     groups: &mut Vec<NodeGroup>,

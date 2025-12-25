@@ -1,17 +1,10 @@
-//! Neuronic - Real-time graphical visualization of Caryatid message bus flow.
+//! Neuronic CLI - Real-time graphical visualization of Caryatid message bus flow.
 //!
-//! A GUI application that subscribes to monitor snapshots and renders
-//! an interactive force-directed graph showing message flow between modules.
-
-mod config;
-mod graph;
-mod subscriber;
-mod ui;
-
-pub use config::NeuronicConfig;
+//! This is the binary entry point. For library usage, see the `neuronic` crate documentation.
 
 use anyhow::Result;
 use clap::Parser;
+use neuronic::NeuronicApp;
 use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -59,7 +52,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Neuronic",
         options,
-        Box::new(move |cc| Ok(Box::new(ui::NeuronicApp::new(cc, args.config, args.topic)))),
+        Box::new(move |cc| Ok(Box::new(NeuronicApp::new(cc, args.config, args.topic)))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))
 }

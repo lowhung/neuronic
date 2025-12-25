@@ -1,17 +1,29 @@
 //! Input handling for zoom, pan, drag, and click.
+//!
+//! Processes mouse and keyboard input for graph interaction:
+//!
+//! - Scroll wheel: Zoom in/out centered on cursor
+//! - Left drag on node: Move the node
+//! - Left drag on background: Pan the view
+//! - Click on node: Select it
+//! - Ctrl+F: Focus search box
+//! - Escape: Clear search
 
 use crate::graph::MessageFlowGraph;
 use egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
 
-/// Result of input handling.
+/// Result of processing user input for a frame.
 pub struct InputResult {
     pub clicked_node: Option<String>,
     pub started_dragging: Option<String>,
     pub stopped_dragging: bool,
 }
 
-/// Handle zoom and pan input.
+/// Handle mouse input for zoom, pan, drag, and node selection.
+///
+/// Processes scroll wheel for zooming, drag gestures for panning or
+/// moving nodes, and clicks for node selection.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_input(
     ui: &mut egui::Ui,
@@ -112,7 +124,10 @@ fn find_node_at_position(
     None
 }
 
-/// Handle keyboard shortcuts.
+/// Handle keyboard shortcuts for search and navigation.
+///
+/// - Ctrl+F: Focus the search box
+/// - Escape: Clear search and unfocus
 pub fn handle_keyboard(ui: &egui::Ui, search_focused: &mut bool) -> KeyboardAction {
     let mut action = KeyboardAction::None;
 

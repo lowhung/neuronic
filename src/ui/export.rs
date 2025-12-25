@@ -1,4 +1,7 @@
 //! Screenshot and SVG export functionality.
+//!
+//! Provides export capabilities for saving graph visualizations
+//! to vector graphics format.
 
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Pos2, Vec2};
@@ -9,7 +12,19 @@ use std::path::Path;
 
 use super::theme::Theme;
 
-/// Export the graph to SVG format.
+/// Export the current graph to an SVG file.
+///
+/// Renders nodes as circles and edges as quadratic Bezier curves,
+/// preserving the current theme colors and node positions.
+///
+/// # Arguments
+///
+/// * `path` - Output file path
+/// * `graph` - The message flow graph to export
+/// * `positions` - Current node positions
+/// * `theme` - Color theme to use
+/// * `width` - Default viewport width (used if no nodes exist)
+/// * `height` - Default viewport height (used if no nodes exist)
 pub fn export_to_svg(
     path: &Path,
     graph: &MessageFlowGraph,
@@ -150,7 +165,10 @@ pub fn export_to_svg(
     Ok(())
 }
 
-/// Show export dialog and handle export.
+/// Show the export button and handle file dialog interaction.
+///
+/// Opens a native file save dialog when clicked, then exports
+/// the graph to the selected location.
 pub fn show_export_dialog(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,

@@ -1,9 +1,19 @@
 //! Configuration loading for Neuronic.
+//!
+//! Configuration is loaded from TOML files with environment variable overrides.
+//! The loading order is:
+//!
+//! 1. `config.default.toml` (if it exists) - shipped defaults
+//! 2. User-specified config file (e.g., `neuronic.toml`)
+//! 3. Environment variables with `NEURONIC_` prefix
 
 use anyhow::Result;
 use config::{Config, Environment, File};
 use serde::Deserialize;
 use std::path::Path;
+
+/// Default configuration file name.
+pub const DEFAULT_CONFIG_FILE: &str = "config.default.toml";
 
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -83,9 +93,20 @@ fn default_pending_critical_ms() -> u64 {
 
 impl NeuronicConfig {
     /// Load configuration from a file.
+    ///
+    /// Loads configuration in the following order (later sources override earlier):
+    /// 1. `config.default.toml` in the current directory (if present)
+    /// 2. The specified config file path
+    /// 3. Environment variables with `NEURONIC_` prefix
+    ///
+    /// If no config files exist, sensible defaults are used.
     pub fn load(path: &Path) -> Result<Self> {
         let config = Config::builder()
+            // First, try to load the default config file
+            .add_source(File::with_name(DEFAULT_CONFIG_FILE).required(false))
+            // Then load the user-specified config file
             .add_source(File::from(path).required(false))
+            // Finally, override with environment variables
             .add_source(Environment::with_prefix("NEURONIC").separator("_"))
             .build()?;
 

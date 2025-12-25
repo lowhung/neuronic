@@ -1,0 +1,31 @@
+# Neuronic Default Configuration
+# Copy this file to neuronic.toml and adjust as needed.
+# All settings can also be overridden via environment variables with the NEURONIC_ prefix.
+
+# RabbitMQ connection settings
+# Neuronic supports two config formats for RabbitMQ:
+#
+# Option 1: Simple [rabbitmq] section
+[rabbitmq]
+url = "amqp://127.0.0.1:5672/%2f"
+exchange = "caryatid"
+
+# Option 2: Caryatid-style [message-bus.*] section (uncomment to use instead)
+# [message-bus.external]
+# class = "rabbit-mq"
+# url = "amqp://127.0.0.1:5672/%2f"
+# exchange = "caryatid"
+
+# Topic filtering - hide noisy topics from the visualization
+[filter]
+ignored_topics = ["cardano.query."]
+
+# Health threshold configuration
+[graph]
+# Backlog thresholds (number of unread messages)
+backlog_warning = 100
+backlog_critical = 1000
+
+# Pending time thresholds (milliseconds since oldest unread message)
+pending_warning_ms = 500
+pending_critical_ms = 2000

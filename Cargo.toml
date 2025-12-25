@@ -13,6 +13,10 @@ keywords = ["caryatid", "visualization", "gui", "message-bus", "monitoring"]
 categories = ["visualization", "development-tools::debugging", "gui"]
 exclude = [".github/", ".gitignore", "*.jpeg"]
 
+[lib]
+name = "neuronic"
+path = "src/lib.rs"
+
 [[bin]]
 name = "neuronic"
 path = "src/main.rs"

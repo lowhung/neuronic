@@ -1,10 +1,16 @@
 //! Module search and highlighting.
+//!
+//! Provides fuzzy search functionality for finding modules by name,
+//! with automatic highlighting and camera focus on matches.
 
 use crate::graph::MessageFlowGraph;
 use egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
 
-/// Find modules matching a search query (fuzzy matching).
+/// Find modules whose names match the search query.
+///
+/// Supports both substring matching and fuzzy matching where query
+/// characters appear in order within the module name.
 pub fn find_matching_modules(graph: &MessageFlowGraph, query: &str) -> Vec<String> {
     if query.is_empty() {
         return Vec::new();
@@ -43,7 +49,9 @@ fn fuzzy_match(target: &str, query: &str) -> bool {
     true
 }
 
-/// Get the best match from a list of matches.
+/// Select the best match from a list of candidates.
+///
+/// Prefers exact prefix matches over substring or fuzzy matches.
 pub fn get_best_match(matches: &[String], query: &str) -> Option<String> {
     if matches.is_empty() {
         return None;
@@ -62,7 +70,9 @@ pub fn get_best_match(matches: &[String], query: &str) -> Option<String> {
     Some(matches[0].clone())
 }
 
-/// Pan and zoom to center on a node.
+/// Pan and zoom the viewport to center on a specific node.
+///
+/// Used to navigate to search results or bookmarked nodes.
 pub fn focus_on_node(
     node_name: &str,
     positions: &HashMap<String, Pos2>,
@@ -81,7 +91,9 @@ pub fn focus_on_node(
     }
 }
 
-/// Draw search box UI.
+/// Draw the search box UI with autocomplete dropdown.
+///
+/// Returns the selected module name if the user picks a match.
 pub fn draw_search_box(
     ui: &mut egui::Ui,
     query: &mut String,

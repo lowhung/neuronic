@@ -1,4 +1,10 @@
 //! Animation state and updates.
+//!
+//! Manages visual effects that indicate message activity:
+//!
+//! - Node firing intensity (glow effect)
+//! - Synapse particles traveling along edges
+//! - Pulse rings expanding from high-activity nodes
 
 use buswatch_types::Snapshot;
 use std::collections::HashMap;
@@ -6,7 +12,14 @@ use std::time::Instant;
 
 use super::types::{NodeActivity, PulseRing, SynapseParticle};
 
-/// Update all animations for a frame.
+/// Update all animation states for a single frame.
+///
+/// Called each frame to:
+/// - Decay node fire intensity over time
+/// - Move synapse particles along edges
+/// - Expand and fade pulse rings
+///
+/// Finished animations are automatically removed.
 pub fn update_animations(
     dt: f32,
     node_activity: &mut HashMap<String, NodeActivity>,
@@ -38,7 +51,13 @@ pub fn update_animations(
     pulse_rings.retain(|_, v| !v.is_empty());
 }
 
-/// Detect activity changes and trigger firing animations.
+/// Detect message activity changes and trigger visual effects.
+///
+/// Compares current snapshot metrics against previous state to detect
+/// new messages. When activity is detected:
+/// - Node fire intensity increases proportionally
+/// - Synapse particles spawn on active edges
+/// - Pulse rings spawn for heavy bursts (50+ messages)
 pub fn detect_activity(
     snapshot: &Snapshot,
     node_activity: &mut HashMap<String, NodeActivity>,
