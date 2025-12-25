@@ -350,7 +350,7 @@ impl<'a> DrawContext<'a> {
 /// Draw a minimap in the corner.
 pub fn draw_minimap(
     ui: &mut egui::Ui,
-    graph: &MessageFlowGraph,
+    _graph: &MessageFlowGraph,
     positions: &HashMap<String, Pos2>,
     viewport_rect: Rect,
     zoom: f32,
@@ -398,7 +398,7 @@ pub fn draw_minimap(
     let scale = scale_x.min(scale_y);
 
     // Draw nodes as dots
-    for (name, pos) in positions {
+    for (_name, pos) in positions {
         let minimap_pos = Pos2::new(
             minimap_rect.center().x + (pos.x - world_center.x) * scale,
             minimap_rect.center().y + (pos.y - world_center.y) * scale,

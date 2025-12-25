@@ -13,4 +13,3 @@ mod theme;
 mod types;
 
 pub use app::NeuronicApp;
-pub use types::LayoutMode;

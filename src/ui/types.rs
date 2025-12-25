@@ -1,6 +1,6 @@
 //! Common types used across UI modules.
 
-use egui::{Color32, Pos2, Vec2};
+use egui::Color32;
 use std::time::Instant;
 
 /// Layout mode for the graph.

@@ -133,7 +133,7 @@ pub fn apply_hierarchical(
 
     let padding = 80.0;
     let usable_width = rect.width() - padding * 2.0;
-    let usable_height = rect.height() - padding * 2.0;
+    let _usable_height = rect.height() - padding * 2.0;
 
     // Position sources at top
     let source_y = rect.top() + padding;

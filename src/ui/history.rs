@@ -20,6 +20,7 @@ pub fn add_to_history(history: &mut VecDeque<SnapshotEntry>, snapshot: Snapshot,
 }
 
 /// Get snapshot at playback position.
+#[allow(dead_code)]
 pub fn get_playback_snapshot(
     history: &VecDeque<SnapshotEntry>,
     position: Option<usize>,
@@ -28,6 +29,7 @@ pub fn get_playback_snapshot(
 }
 
 /// Adjust playback position after history changes.
+#[allow(dead_code)]
 pub fn adjust_playback_position(position: &mut Option<usize>, history_len: usize) {
     if let Some(pos) = position {
         if *pos >= history_len {

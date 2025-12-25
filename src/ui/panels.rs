@@ -1,11 +1,11 @@
 //! Side panels: details, legend, filters, groups.
 
-use crate::graph::{HealthStatus, MessageFlowGraph, ModuleNode};
+use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
 use std::collections::VecDeque;
 
 use super::theme::Theme;
-use super::types::{LayoutMode, NodeActivity, NodeGroup, SnapshotEntry};
+use super::types::{NodeActivity, NodeGroup, SnapshotEntry};
 
 /// Draw the details panel for a selected node.
 pub fn draw_details_panel(
@@ -266,11 +266,9 @@ pub fn draw_history_controls(
                 *playback_position = Some(history.len().saturating_sub(1));
             }
 
-            // Show timestamp
+            // Show position
             if let Some(pos) = *playback_position {
-                if let Some(entry) = history.get(pos) {
-                    ui.label(format!("{}/{}", pos + 1, history.len()));
-                }
+                ui.label(format!("{}/{}", pos + 1, history.len()));
             }
         }
     });
