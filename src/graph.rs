@@ -15,17 +15,6 @@ pub enum HealthStatus {
     Critical,
 }
 
-impl HealthStatus {
-    /// Get the color for this health status (RGBA).
-    pub fn color(&self) -> egui::Color32 {
-        match self {
-            HealthStatus::Healthy => egui::Color32::from_rgb(100, 200, 100), // Green
-            HealthStatus::Warning => egui::Color32::from_rgb(230, 180, 50),  // Yellow/Orange
-            HealthStatus::Critical => egui::Color32::from_rgb(220, 80, 80),  // Red
-        }
-    }
-}
-
 /// A module node in the message flow graph.
 #[derive(Debug, Clone)]
 pub struct ModuleNode {
@@ -70,6 +59,7 @@ pub struct TopicEdge {
     /// Topic name.
     pub topic: String,
     /// Message count on this topic.
+    #[allow(dead_code)]
     pub message_count: u64,
     /// Message rate if available.
     pub rate: Option<f64>,
