@@ -1,5 +1,10 @@
 # Neuronic
 
+[![Crates.io](https://img.shields.io/crates/v/neuronic.svg)](https://crates.io/crates/neuronic)
+[![Documentation](https://docs.rs/neuronic/badge.svg)](https://docs.rs/neuronic)
+[![CI](https://github.com/lowhung/neuronic/actions/workflows/ci.yml/badge.svg)](https://github.com/lowhung/neuronic/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/neuronic.svg)](LICENSE)
+
 Real-time graph visualization for message bus systems.
 
 ![Graph with pulse animations](graph_with_pulse.jpeg)
