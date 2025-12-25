@@ -22,18 +22,18 @@ path = "src/main.rs"
 buswatch-types = { version = "0.1.0", features = ["serde"] }
 
 # GUI framework
-eframe = "0.30"
-egui = "0.30"
-egui_graphs = "0.22"
+eframe = "0.33"
+egui = "0.33"
+egui_graphs = "0.29"
 
 # Graph data structure
-petgraph = "0.6.5"
+petgraph = "0.8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
 # RabbitMQ
-lapin = "2"
+lapin = "3"
 futures-util = "0.3"
 minicbor-serde = { version = "0.6", features = ["alloc"] }
 
@@ -54,7 +54,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # File dialogs
-rfd = "0.15"
+rfd = "0.16"
 
 [dev-dependencies]
 tempfile = "3"

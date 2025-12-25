@@ -370,7 +370,12 @@ pub fn draw_minimap(
 
     // Background
     painter.rect_filled(minimap_rect, 4.0, theme.panel_fill().gamma_multiply(0.9));
-    painter.rect_stroke(minimap_rect, 4.0, Stroke::new(1.0, theme.text_secondary()));
+    painter.rect_stroke(
+        minimap_rect,
+        4.0,
+        Stroke::new(1.0, theme.text_secondary()),
+        egui::StrokeKind::Outside,
+    );
 
     if positions.is_empty() {
         return;
@@ -431,5 +436,6 @@ pub fn draw_minimap(
         minimap_viewport_rect,
         2.0,
         Stroke::new(1.0, Color32::WHITE.gamma_multiply(0.5)),
+        egui::StrokeKind::Outside,
     );
 }

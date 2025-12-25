@@ -1,9 +1,7 @@
 [advisories]
 version = 2
 ignore = [
-    # Unmaintained but no security issues, used transitively by dependencies
-    "RUSTSEC-2024-0384", # instant - used by lapin's async-io
-    "RUSTSEC-2024-0436", # paste - used by accesskit_windows via eframe
+    # Unmaintained but no security issues, used transitively by lapin
     "RUSTSEC-2025-0134", # rustls-pemfile - used by tcp-stream via lapin
 ]
 
@@ -20,6 +18,7 @@ allow = [
     "Unicode-3.0",
     "BSL-1.0",      # Boost Software License - used by clipboard-win, error-code
     "OFL-1.1",      # SIL Open Font License - used by epaint_default_fonts
+    "OpenSSL",      # OpenSSL License - used by aws-lc-sys via rustls
 ]
 confidence-threshold = 0.8
 
