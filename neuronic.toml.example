@@ -1,0 +1,28 @@
+# Neuronic Configuration Example
+# Copy this file to neuronic.toml and adjust as needed.
+
+[rabbitmq]
+# RabbitMQ connection URL
+url = "amqp://127.0.0.1:5672/%2f"
+# Exchange to bind to
+exchange = "caryatid"
+
+[graph]
+# Layout algorithm: "force-directed", "hierarchical", "circular"
+layout = "force-directed"
+# How often to update the graph (ms)
+update_interval_ms = 100
+# Backlog thresholds for health status
+backlog_warning_threshold = 100
+backlog_critical_threshold = 1000
+# Pending time thresholds (ms)
+pending_warning_ms = 500
+pending_critical_ms = 2000
+
+[ui]
+# Color theme: "dark" or "light"
+theme = "dark"
+# Show topic names on edges
+show_topic_labels = true
+# Animate message particles along edges
+animate_messages = true
