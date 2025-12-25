@@ -10,7 +10,7 @@ Neuronic was developed for [Acropolis](https://github.com/input-output-hk/acropo
 
 Caryatid includes a monitoring layer that wraps the message bus and tracks per-module, per-topic metrics: message counts, backlog depths, and pending durations. These snapshots are published periodically to a configurable topic (default: `caryatid.monitor.snapshot`).
 
-[buswatch](https://github.com/input-output-hk/buswatch) provides a TUI for this data. Neuronic provides a GUI with force-directed graph layout, making it easier to understand topology and spot bottlenecks visually.
+[buswatch](https://github.com/lowhung/buswatch) provides a TUI for this data. Neuronic provides a GUI with force-directed graph layout, making it easier to understand topology and spot bottlenecks visually.
 
 Both tools depend on `buswatch-types` for snapshot deserialization. The architecture is not Cardano-specific - any system publishing compatible monitoring snapshots can use these tools.
 
@@ -100,11 +100,11 @@ src/
 - [eframe/egui](https://github.com/emilk/egui) - Cross-platform GUI
 - [petgraph](https://docs.rs/petgraph) - Graph data structure
 - [lapin](https://docs.rs/lapin) - RabbitMQ AMQP client
-- [buswatch-types](https://github.com/input-output-hk/buswatch) - Snapshot format
+- [buswatch-types](https://github.com/lowhung/buswatch) - Snapshot format
 
 ## Related
 
-- [buswatch](https://github.com/input-output-hk/buswatch) - TUI for the same monitoring data
+- [buswatch](https://github.com/lowhung/buswatch) - TUI for the same monitoring data
 - [Caryatid](https://github.com/input-output-hk/caryatid) - The underlying modular framework
 - [Acropolis](https://github.com/input-output-hk/acropolis) - Cardano node implementation using Caryatid
 
