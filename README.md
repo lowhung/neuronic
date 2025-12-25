@@ -1,46 +1,52 @@
 # Neuronic
 
-A real-time graph visualization for message bus systems. Watch your modules talk to each other in a force-directed graph instead of staring at logs.
-
-Built to work with [buswatch](https://github.com/yourusername/buswatch) (which I also wrote) - they share the same snapshot format, so you can use the TUI or the GUI depending on your mood.
+Real-time graph visualization for message bus systems.
 
 ![Graph with pulse animations](graph_with_pulse.jpeg)
 
-## What is this?
+## Background
 
-Neuronic subscribes to a monitoring topic on your message bus and renders what it sees as an interactive graph:
+Neuronic was developed for [Acropolis](https://github.com/input-output-hk/acropolis), a modular Rust implementation of a Cardano node. Acropolis uses the [Caryatid](https://github.com/input-output-hk/caryatid) framework, which provides an event-driven architecture where modules communicate over a message bus (RabbitMQ or an in-memory bus for single-process deployments).
 
-- **Nodes** = your modules/services
-- **Edges** = topics/queues connecting them
-- **Colors** = health status (green is good, red means go look at it)
+Caryatid includes a monitoring layer that wraps the message bus and tracks per-module, per-topic metrics: message counts, backlog depths, and pending durations. These snapshots are published periodically to a configurable topic (default: `caryatid.monitor.snapshot`).
 
-It's useful for understanding how data flows through your system, spotting bottlenecks, and figuring out why that one queue keeps backing up.
+[buswatch](https://github.com/input-output-hk/buswatch) provides a TUI for this data. Neuronic provides a GUI with force-directed graph layout, making it easier to understand topology and spot bottlenecks visually.
+
+Both tools depend on `buswatch-types` for snapshot deserialization. The architecture is not Cardano-specific - any system publishing compatible monitoring snapshots can use these tools.
+
+## Overview
+
+Neuronic subscribes to a monitoring topic and renders module connectivity as an interactive graph:
+
+- **Nodes** represent modules/services
+- **Edges** represent topics connecting producers to consumers
+- **Colors** indicate health status based on configurable thresholds
 
 ![Graph without pulse animations](graph_without_pulse.jpeg)
 
 ## Features
 
-- **Live updates** as messages flow through the system
-- **Force-directed layout** that settles into something readable
-- **Curved Bezier edges** so you can actually trace connections
-- **Drag nodes around** when the physics doesn't get it right
+- **Live updates** - graph redraws as snapshots arrive
+- **Force-directed layout** - physics-based node positioning with repulsion/attraction forces
+- **Curved Bezier edges** - quadratic curves for clear edge tracing
+- **Node dragging** - manual repositioning when needed
 - **Light/dark themes**
 - **Fuzzy search** (Ctrl+F)
-- **Health thresholds** - configure when nodes go yellow/red based on backlog or pending time
+- **Configurable health thresholds** - warning/critical states based on backlog depth or pending time
 
-Visual feedback:
-- Particles flowing along edges show active message traffic
-- Pulse rings when a node is firing heavily
-- Node glow intensity based on throughput
+Visual indicators:
+- Particles flow along edges during active message traffic
+- Pulse rings expand from nodes under heavy load
+- Node intensity scales with throughput
 
-## Getting started
+## Installation
 
 ```bash
 cargo install --path .
 neuronic
 ```
 
-Or with a config:
+With options:
 
 ```bash
 neuronic --config neuronic.toml --debug
@@ -64,41 +70,43 @@ pending_warning_ms = 500
 pending_critical_ms = 2000
 ```
 
-Env vars work too (`NEURONIC_` prefix).
+Environment variables are also supported with the `NEURONIC_` prefix.
 
 ## Layout modes
 
-- **Force-directed** (default) - nodes repel each other, edges attract. Looks organic.
-- **Hierarchical** - sources at top, sinks at bottom. Good for understanding data flow.
+- **Force-directed** (default) - nodes repel, edges attract. Organic clustering.
+- **Hierarchical** - sources at top, sinks at bottom. Useful for understanding dataflow direction.
 
 ## Project structure
 
 ```
 src/
-├── main.rs           # CLI
-├── config.rs         # Config loading
-├── subscriber.rs     # Message bus connection
+├── main.rs           # CLI entry point
+├── config.rs         # Configuration loading
+├── subscriber.rs     # RabbitMQ subscriber
 ├── graph.rs          # Graph model (petgraph)
 └── ui/
-    ├── app.rs        # Main app loop
-    ├── theme.rs      # Light/dark themes
-    ├── drawing.rs    # Rendering (Bezier edges, nodes)
-    ├── input.rs      # Mouse/keyboard
-    ├── layout.rs     # Force simulation
-    ├── animations.rs # Particles, pulses
-    └── panels.rs     # Info panels
+    ├── app.rs        # eframe application
+    ├── theme.rs      # Color schemes
+    ├── drawing.rs    # Bezier edge rendering
+    ├── input.rs      # Mouse/keyboard handling
+    ├── layout.rs     # Force-directed simulation
+    ├── animations.rs # Particle and pulse effects
+    └── panels.rs     # Side panels
 ```
 
 ## Dependencies
 
-- [eframe/egui](https://github.com/emilk/egui) - GUI
-- [petgraph](https://docs.rs/petgraph) - Graph structure
-- [lapin](https://docs.rs/lapin) - RabbitMQ client
-- [buswatch-types](https://github.com/yourusername/buswatch) - Shared snapshot format
+- [eframe/egui](https://github.com/emilk/egui) - Cross-platform GUI
+- [petgraph](https://docs.rs/petgraph) - Graph data structure
+- [lapin](https://docs.rs/lapin) - RabbitMQ AMQP client
+- [buswatch-types](https://github.com/input-output-hk/buswatch) - Snapshot format
 
 ## Related
 
-- [buswatch](https://github.com/yourusername/buswatch) - TUI version, same data, terminal-based
+- [buswatch](https://github.com/input-output-hk/buswatch) - TUI for the same monitoring data
+- [Caryatid](https://github.com/input-output-hk/caryatid) - The underlying modular framework
+- [Acropolis](https://github.com/input-output-hk/acropolis) - Cardano node implementation using Caryatid
 
 ## License
 
