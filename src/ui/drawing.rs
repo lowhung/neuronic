@@ -398,7 +398,7 @@ pub fn draw_minimap(
     let scale = scale_x.min(scale_y);
 
     // Draw nodes as dots
-    for (_name, pos) in positions {
+    for pos in positions.values() {
         let minimap_pos = Pos2::new(
             minimap_rect.center().x + (pos.x - world_center.x) * scale,
             minimap_rect.center().y + (pos.y - world_center.y) * scale,

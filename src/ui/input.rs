@@ -12,6 +12,7 @@ pub struct InputResult {
 }
 
 /// Handle zoom and pan input.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_input(
     ui: &mut egui::Ui,
     rect: Rect,
@@ -39,7 +40,7 @@ pub fn handle_input(
             if rect.contains(mouse_pos) {
                 let center = rect.center();
                 let mouse_offset = mouse_pos - center - *pan;
-                *pan = *pan + mouse_offset * (1.0 - new_zoom / *zoom);
+                *pan += mouse_offset * (1.0 - new_zoom / *zoom);
                 *zoom = new_zoom;
             }
         }

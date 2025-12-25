@@ -46,6 +46,7 @@ pub struct PulseRing {
 
 /// Node group for clustering.
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct NodeGroup {
     pub name: String,
     pub pattern: String,

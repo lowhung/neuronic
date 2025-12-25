@@ -128,14 +128,12 @@ pub fn draw_filter_panel(
     // Add new filter
     ui.horizontal(|ui| {
         let response = ui.text_edit_singleline(new_filter);
-        if ui.button("+").clicked()
-            || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-        {
-            if !new_filter.is_empty() {
-                filters.push(new_filter.clone());
-                new_filter.clear();
-                changed = true;
-            }
+        let should_add = ui.button("+").clicked()
+            || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+        if should_add && !new_filter.is_empty() {
+            filters.push(new_filter.clone());
+            new_filter.clear();
+            changed = true;
         }
     });
 

@@ -210,6 +210,7 @@ impl MessageFlowGraph {
         // For each topic, connect producers to consumers
         let mut topic_producers: HashMap<String, Vec<(NodeIndex, u64, Option<f64>)>> =
             HashMap::new();
+        #[allow(clippy::type_complexity)]
         let mut topic_consumers: HashMap<
             String,
             Vec<(NodeIndex, u64, Option<u64>, Option<u64>, Option<f64>)>,
@@ -367,7 +368,6 @@ impl Default for MessageFlowGraph {
 mod tests {
     use super::*;
     use buswatch_types::Snapshot;
-    use std::time::Duration;
 
     #[test]
     fn test_empty_graph() {

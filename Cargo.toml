@@ -6,6 +6,12 @@ rust-version = "1.85"
 authors = ["Matthew Hounslow"]
 description = "Real-time graphical visualization of Caryatid message bus flow"
 license = "Apache-2.0"
+repository = "https://github.com/lowhung/neuronic"
+documentation = "https://docs.rs/neuronic"
+readme = "README.md"
+keywords = ["caryatid", "visualization", "gui", "message-bus", "monitoring"]
+categories = ["visualization", "development-tools::debugging", "gui"]
+exclude = [".github/", ".gitignore", "*.jpeg"]
 
 [[bin]]
 name = "neuronic"

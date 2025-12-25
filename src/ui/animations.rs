@@ -74,7 +74,7 @@ pub fn detect_activity(
                     if other_metrics.reads.contains_key(topic) {
                         let key = (module_name.clone(), other_name.clone(), topic.clone());
                         let particles = synapse_particles.entry(key).or_default();
-                        let new_particles = (delta as usize / 50).max(1).min(5);
+                        let new_particles = (delta as usize / 50).clamp(1, 5);
                         for i in 0..new_particles {
                             particles.push(SynapseParticle {
                                 progress: i as f32 * 0.1,

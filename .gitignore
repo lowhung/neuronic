@@ -1,2 +1,24 @@
-target
+# Build artifacts
+/target
+
+# Local configuration (may contain credentials)
 neuronic.toml
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml
+
+# Backup files
+*.bak
+*~
