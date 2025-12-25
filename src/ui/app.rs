@@ -541,6 +541,18 @@ impl NeuronicApp {
                     egui::FontId::proportional(10.0 * self.zoom),
                     Color32::from_rgb(200, 200, 220),
                 );
+
+                // Show rate below name if available
+                if let Some(rate) = node.rate() {
+                    let rate_text = format_rate(rate);
+                    painter.text(
+                        pos + Vec2::new(0.0, radius + 22.0 * self.zoom),
+                        egui::Align2::CENTER_CENTER,
+                        &rate_text,
+                        egui::FontId::proportional(8.0 * self.zoom),
+                        Color32::from_rgba_unmultiplied(150, 200, 150, 200),
+                    );
+                }
             }
         }
     }
@@ -778,6 +790,21 @@ impl NeuronicApp {
         }
 
         response
+    }
+}
+
+/// Format a rate value nicely (e.g., "1.2k/s" for 1200).
+fn format_rate(rate: f64) -> String {
+    if rate >= 1_000_000.0 {
+        format!("{:.1}M/s", rate / 1_000_000.0)
+    } else if rate >= 1_000.0 {
+        format!("{:.1}k/s", rate / 1_000.0)
+    } else if rate >= 1.0 {
+        format!("{:.0}/s", rate)
+    } else if rate > 0.0 {
+        format!("{:.1}/s", rate)
+    } else {
+        String::new()
     }
 }
 
