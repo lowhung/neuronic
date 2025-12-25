@@ -74,8 +74,10 @@ pub struct TopicEdge {
     /// Message rate if available.
     pub rate: Option<f64>,
     /// Backlog (unread messages) if available.
+    #[allow(dead_code)]
     pub backlog: Option<u64>,
     /// Pending time in microseconds if available.
+    #[allow(dead_code)]
     pub pending_us: Option<u64>,
     /// Health status of this connection.
     pub health: HealthStatus,
@@ -125,6 +127,7 @@ impl MessageFlowGraph {
     }
 
     /// Create a graph with custom health config.
+    #[cfg(test)]
     pub fn with_config(health_config: HealthConfig) -> Self {
         Self {
             graph: DiGraph::new(),
@@ -301,6 +304,7 @@ impl MessageFlowGraph {
     }
 
     /// Check if a module has critical health.
+    #[cfg(test)]
     pub fn has_critical_modules(&self) -> bool {
         self.graph
             .node_weights()
@@ -308,6 +312,7 @@ impl MessageFlowGraph {
     }
 
     /// Get modules with critical health.
+    #[cfg(test)]
     pub fn critical_modules(&self) -> Vec<&ModuleNode> {
         self.graph
             .node_weights()
