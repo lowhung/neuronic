@@ -103,16 +103,21 @@ pub struct MessageFlowGraph {
     pub health_config: HealthConfig,
     /// Last snapshot timestamp.
     pub last_update_ms: u64,
+    /// Topic patterns to ignore.
+    pub ignored_topic_prefixes: Vec<String>,
 }
 
 impl MessageFlowGraph {
-    /// Create a new empty graph.
+    /// Create a new empty graph with default ignored topics.
     pub fn new() -> Self {
         Self {
             graph: DiGraph::new(),
             module_indices: HashMap::new(),
             health_config: HealthConfig::default(),
             last_update_ms: 0,
+            ignored_topic_prefixes: vec![
+                "cardano.query.".to_string(), // Ignore query topics - too noisy
+            ],
         }
     }
 
@@ -124,7 +129,15 @@ impl MessageFlowGraph {
             module_indices: HashMap::new(),
             health_config,
             last_update_ms: 0,
+            ignored_topic_prefixes: vec![],
         }
+    }
+
+    /// Check if a topic should be ignored.
+    fn should_ignore_topic(&self, topic: &str) -> bool {
+        self.ignored_topic_prefixes
+            .iter()
+            .any(|prefix| topic.starts_with(prefix))
     }
 
     /// Update the graph from a snapshot.
@@ -135,8 +148,19 @@ impl MessageFlowGraph {
         for (module_name, metrics) in snapshot.iter() {
             let health = self.compute_module_health(metrics);
 
-            let read_topics: Vec<String> = metrics.reads.keys().cloned().collect();
-            let write_topics: Vec<String> = metrics.writes.keys().cloned().collect();
+            // Filter out ignored topics
+            let read_topics: Vec<String> = metrics
+                .reads
+                .keys()
+                .filter(|t| !self.should_ignore_topic(t))
+                .cloned()
+                .collect();
+            let write_topics: Vec<String> = metrics
+                .writes
+                .keys()
+                .filter(|t| !self.should_ignore_topic(t))
+                .cloned()
+                .collect();
 
             // Compute rates
             let read_rate: Option<f64> = metrics
@@ -187,6 +211,9 @@ impl MessageFlowGraph {
             let idx = self.module_indices[module_name];
 
             for (topic, write_metrics) in &metrics.writes {
+                if self.should_ignore_topic(topic) {
+                    continue;
+                }
                 topic_producers.entry(topic.clone()).or_default().push((
                     idx,
                     write_metrics.count,
@@ -195,6 +222,9 @@ impl MessageFlowGraph {
             }
 
             for (topic, read_metrics) in &metrics.reads {
+                if self.should_ignore_topic(topic) {
+                    continue;
+                }
                 topic_consumers.entry(topic.clone()).or_default().push((
                     idx,
                     read_metrics.count,
@@ -230,7 +260,11 @@ impl MessageFlowGraph {
     fn compute_module_health(&self, metrics: &buswatch_types::ModuleMetrics) -> HealthStatus {
         let mut worst = HealthStatus::Healthy;
 
-        for read in metrics.reads.values() {
+        for (topic, read) in &metrics.reads {
+            // Skip ignored topics
+            if self.should_ignore_topic(topic) {
+                continue;
+            }
             if let Some(backlog) = read.backlog {
                 if backlog >= self.health_config.backlog_critical {
                     return HealthStatus::Critical;
@@ -248,7 +282,11 @@ impl MessageFlowGraph {
             }
         }
 
-        for write in metrics.writes.values() {
+        for (topic, write) in &metrics.writes {
+            // Skip ignored topics
+            if self.should_ignore_topic(topic) {
+                continue;
+            }
             if let Some(pending) = write.pending {
                 let pending_us = pending.as_micros();
                 if pending_us >= self.health_config.pending_critical_us {
