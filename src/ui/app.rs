@@ -12,14 +12,91 @@ use std::path::PathBuf;
 use std::sync::mpsc as std_mpsc;
 use std::time::Instant;
 
-// Neural color palette
-const NEURON_BASE: Color32 = Color32::from_rgb(60, 80, 120); // Deep blue-gray
-const NEURON_ACTIVE: Color32 = Color32::from_rgb(100, 180, 255); // Bright cyan-blue
-const NEURON_FIRING: Color32 = Color32::from_rgb(180, 220, 255); // White-blue flash
-const SYNAPSE_BASE: Color32 = Color32::from_rgb(80, 60, 120); // Purple-gray
-const SYNAPSE_ACTIVE: Color32 = Color32::from_rgb(200, 100, 255); // Magenta
-const NEURON_WARNING: Color32 = Color32::from_rgb(255, 180, 80); // Orange
-const NEURON_CRITICAL: Color32 = Color32::from_rgb(255, 80, 100); // Red-pink
+/// Color theme for the visualization.
+#[derive(Clone, Copy, PartialEq)]
+enum Theme {
+    Dark,
+    Light,
+}
+
+impl Theme {
+    fn neuron_base(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(60, 80, 120), // Deep blue-gray
+            Theme::Light => Color32::from_rgb(70, 130, 180), // Steel blue
+        }
+    }
+
+    fn neuron_active(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(100, 180, 255), // Bright cyan-blue
+            Theme::Light => Color32::from_rgb(30, 144, 255), // Dodger blue
+        }
+    }
+
+    fn neuron_firing(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(180, 220, 255), // White-blue flash
+            Theme::Light => Color32::from_rgb(135, 206, 250), // Light sky blue
+        }
+    }
+
+    fn synapse_base(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(80, 60, 120), // Purple-gray
+            Theme::Light => Color32::from_rgb(147, 112, 219), // Medium purple
+        }
+    }
+
+    fn synapse_active(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(200, 100, 255), // Magenta
+            Theme::Light => Color32::from_rgb(186, 85, 211), // Medium orchid
+        }
+    }
+
+    fn neuron_warning(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(255, 180, 80), // Orange
+            Theme::Light => Color32::from_rgb(255, 140, 0), // Dark orange
+        }
+    }
+
+    fn neuron_critical(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(255, 80, 100), // Red-pink
+            Theme::Light => Color32::from_rgb(220, 20, 60), // Crimson
+        }
+    }
+
+    fn text_primary(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(200, 200, 220),
+            Theme::Light => Color32::from_rgb(30, 30, 50),
+        }
+    }
+
+    fn text_secondary(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgba_unmultiplied(150, 150, 180, 180),
+            Theme::Light => Color32::from_rgba_unmultiplied(80, 80, 100, 200),
+        }
+    }
+
+    fn background(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(15, 15, 25),
+            Theme::Light => Color32::from_rgb(245, 245, 250),
+        }
+    }
+
+    fn panel_fill(&self) -> Color32 {
+        match self {
+            Theme::Dark => Color32::from_rgb(20, 20, 35),
+            Theme::Light => Color32::from_rgb(255, 255, 255),
+        }
+    }
+}
 
 /// Activity state for a node (for firing animation).
 #[derive(Clone)]
@@ -85,6 +162,10 @@ pub struct NeuronicApp {
     update_count: u64,
     /// Last frame time for animation.
     last_frame: Instant,
+    /// Current color theme.
+    theme: Theme,
+    /// Currently dragged node (if any).
+    dragged_node: Option<String>,
 }
 
 impl NeuronicApp {
@@ -165,6 +246,8 @@ impl NeuronicApp {
             paused: false,
             update_count: 0,
             last_frame: Instant::now(),
+            theme: Theme::Dark,
+            dragged_node: None,
         }
     }
 
@@ -397,16 +480,20 @@ impl NeuronicApp {
 
         // Base color from health
         let base = match node.health {
-            HealthStatus::Healthy => NEURON_BASE,
-            HealthStatus::Warning => NEURON_WARNING,
-            HealthStatus::Critical => NEURON_CRITICAL,
+            HealthStatus::Healthy => self.theme.neuron_base(),
+            HealthStatus::Warning => self.theme.neuron_warning(),
+            HealthStatus::Critical => self.theme.neuron_critical(),
         };
 
         // Blend with active/firing colors based on intensity
         if fire_intensity > 0.5 {
-            lerp_color(NEURON_ACTIVE, NEURON_FIRING, (fire_intensity - 0.5) * 2.0)
+            lerp_color(
+                self.theme.neuron_active(),
+                self.theme.neuron_firing(),
+                (fire_intensity - 0.5) * 2.0,
+            )
         } else if fire_intensity > 0.0 {
-            lerp_color(base, NEURON_ACTIVE, fire_intensity * 2.0)
+            lerp_color(base, self.theme.neuron_active(), fire_intensity * 2.0)
         } else {
             base
         }
@@ -415,6 +502,9 @@ impl NeuronicApp {
     /// Draw the graph.
     fn draw_graph(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let painter = ui.painter_at(rect);
+
+        // Paint background
+        painter.rect_filled(rect, 0.0, self.theme.background());
 
         // Apply layout (in world coordinates)
         self.apply_layout(rect);
@@ -443,27 +533,45 @@ impl NeuronicApp {
 
                 // Edge color based on health
                 let edge_color = match edge.health {
-                    HealthStatus::Healthy => SYNAPSE_BASE,
-                    HealthStatus::Warning => NEURON_WARNING.gamma_multiply(0.7),
-                    HealthStatus::Critical => NEURON_CRITICAL.gamma_multiply(0.7),
+                    HealthStatus::Healthy => self.theme.synapse_base(),
+                    HealthStatus::Warning => self.theme.neuron_warning().gamma_multiply(0.7),
+                    HealthStatus::Critical => self.theme.neuron_critical().gamma_multiply(0.7),
                 };
 
                 // Thinner lines, scaled by zoom
                 let width =
                     (1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3) * self.zoom;
 
-                painter.line_segment([pos_s, pos_t], Stroke::new(width, edge_color));
-
-                // Draw arrow (smaller), scaled by zoom
+                // Calculate control point for Bezier curve
+                // Curve bows outward perpendicular to the line
+                let mid = pos_s + (pos_t - pos_s) * 0.5;
                 let dir = (pos_t - pos_s).normalized();
-                let node_radius = 12.0 * self.zoom;
-                let arrow_pos = pos_t - dir * (node_radius + 8.0 * self.zoom);
-                let arrow_size = 5.0 * self.zoom;
                 let perp = Vec2::new(-dir.y, dir.x);
+                let distance = (pos_t - pos_s).length();
+                // Curve amount proportional to distance, but capped
+                let curve_amount = (distance * 0.15).min(40.0 * self.zoom);
+                let control = mid + perp * curve_amount;
+
+                // Draw curved edge using line segments
+                let segments = 20;
+                let points = bezier_points(pos_s, control, pos_t, segments);
+                for i in 0..points.len() - 1 {
+                    painter
+                        .line_segment([points[i], points[i + 1]], Stroke::new(width, edge_color));
+                }
+
+                // Draw arrow at the end, aligned with curve tangent
+                let node_radius = 12.0 * self.zoom;
+                // Find the point along the curve that's node_radius away from target
+                let arrow_t = 1.0 - (node_radius + 8.0 * self.zoom) / distance.max(1.0);
+                let arrow_pos = quadratic_bezier(pos_s, control, pos_t, arrow_t.max(0.8));
+                let arrow_dir = bezier_tangent(pos_s, control, pos_t, arrow_t.max(0.8));
+                let arrow_perp = Vec2::new(-arrow_dir.y, arrow_dir.x);
+                let arrow_size = 5.0 * self.zoom;
                 let arrow_points = vec![
-                    arrow_pos + dir * arrow_size,
-                    arrow_pos + perp * arrow_size * 0.4,
-                    arrow_pos - perp * arrow_size * 0.4,
+                    arrow_pos + arrow_dir * arrow_size,
+                    arrow_pos + arrow_perp * arrow_size * 0.4,
+                    arrow_pos - arrow_perp * arrow_size * 0.4,
                 ];
                 painter.add(egui::Shape::convex_polygon(
                     arrow_points,
@@ -471,7 +579,7 @@ impl NeuronicApp {
                     Stroke::NONE,
                 ));
 
-                // Draw synapse particles (firing animation)
+                // Draw synapse particles (firing animation) along the curve
                 let key = (
                     source_node.name.clone(),
                     target_node.name.clone(),
@@ -479,8 +587,10 @@ impl NeuronicApp {
                 );
                 if let Some(particles) = self.synapse_particles.get(&key) {
                     for particle in particles {
-                        let particle_pos = pos_s + (pos_t - pos_s) * particle.progress;
-                        let particle_color = SYNAPSE_ACTIVE;
+                        // Position particle along the Bezier curve
+                        let particle_pos =
+                            quadratic_bezier(pos_s, control, pos_t, particle.progress);
+                        let particle_color = self.theme.synapse_active();
                         let glow_radius = 4.0 * self.zoom;
                         // Glow effect
                         painter.circle_filled(
@@ -492,15 +602,15 @@ impl NeuronicApp {
                     }
                 }
 
-                // Topic label (smaller, more transparent)
+                // Topic label (smaller, more transparent) at curve midpoint
                 if self.show_labels && self.zoom > 0.5 {
-                    let mid = pos_s + (pos_t - pos_s) * 0.5;
+                    let label_pos = quadratic_bezier(pos_s, control, pos_t, 0.5);
                     painter.text(
-                        mid,
+                        label_pos,
                         egui::Align2::CENTER_CENTER,
                         &edge.topic,
                         egui::FontId::proportional(9.0 * self.zoom),
-                        Color32::from_rgba_unmultiplied(150, 150, 180, 180),
+                        self.theme.text_secondary(),
                     );
                 }
             }
@@ -531,7 +641,10 @@ impl NeuronicApp {
             if fire_intensity > 0.1 {
                 // Outer glow
                 let glow_radius = radius + (8.0 + fire_intensity * 10.0) * self.zoom;
-                let glow_color = NEURON_ACTIVE.gamma_multiply(fire_intensity * 0.4);
+                let glow_color = self
+                    .theme
+                    .neuron_active()
+                    .gamma_multiply(fire_intensity * 0.4);
                 painter.circle_filled(pos, glow_radius, glow_color);
             }
 
@@ -558,7 +671,7 @@ impl NeuronicApp {
                     egui::Align2::CENTER_CENTER,
                     &node.name,
                     egui::FontId::proportional(10.0 * self.zoom),
-                    Color32::from_rgb(200, 200, 220),
+                    self.theme.text_primary(),
                 );
 
                 // Show rate below name if available
@@ -569,7 +682,7 @@ impl NeuronicApp {
                         egui::Align2::CENTER_CENTER,
                         &rate_text,
                         egui::FontId::proportional(8.0 * self.zoom),
-                        Color32::from_rgba_unmultiplied(150, 200, 150, 200),
+                        self.theme.text_secondary(),
                     );
                 }
             }
@@ -584,25 +697,26 @@ impl NeuronicApp {
         ui.label("Node Status:");
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
-            ui.painter().circle_filled(rect.center(), 6.0, NEURON_BASE);
+            ui.painter()
+                .circle_filled(rect.center(), 6.0, self.theme.neuron_base());
             ui.label("Healthy");
         });
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
             ui.painter()
-                .circle_filled(rect.center(), 6.0, NEURON_WARNING);
+                .circle_filled(rect.center(), 6.0, self.theme.neuron_warning());
             ui.label("Warning");
         });
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
             ui.painter()
-                .circle_filled(rect.center(), 6.0, NEURON_CRITICAL);
+                .circle_filled(rect.center(), 6.0, self.theme.neuron_critical());
             ui.label("Critical");
         });
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
             ui.painter()
-                .circle_filled(rect.center(), 6.0, NEURON_ACTIVE);
+                .circle_filled(rect.center(), 6.0, self.theme.neuron_active());
             ui.label("Active (firing)");
         });
 
@@ -619,7 +733,7 @@ impl NeuronicApp {
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
             ui.painter()
-                .circle_filled(rect.center(), 4.0, SYNAPSE_ACTIVE);
+                .circle_filled(rect.center(), 4.0, self.theme.synapse_active());
             ui.label("Message flow");
         });
 
@@ -636,12 +750,30 @@ impl NeuronicApp {
         ui.horizontal(|ui| {
             // Connection status
             if self.connected {
-                ui.label(egui::RichText::new("● Connected").color(NEURON_ACTIVE));
+                ui.label(egui::RichText::new("● Connected").color(self.theme.neuron_active()));
             } else {
-                ui.label(egui::RichText::new("● Disconnected").color(NEURON_CRITICAL));
+                ui.label(egui::RichText::new("● Disconnected").color(self.theme.neuron_critical()));
                 if let Some(err) = &self.connection_error {
-                    ui.label(egui::RichText::new(err).color(NEURON_CRITICAL).small());
+                    ui.label(
+                        egui::RichText::new(err)
+                            .color(self.theme.neuron_critical())
+                            .small(),
+                    );
                 }
+            }
+
+            ui.separator();
+
+            // Theme toggle
+            let theme_label = match self.theme {
+                Theme::Dark => "☀ Light",
+                Theme::Light => "🌙 Dark",
+            };
+            if ui.button(theme_label).clicked() {
+                self.theme = match self.theme {
+                    Theme::Dark => Theme::Light,
+                    Theme::Light => Theme::Dark,
+                };
             }
 
             ui.separator();
@@ -705,12 +837,13 @@ impl NeuronicApp {
                 ui.heading(&node.name);
                 ui.separator();
 
+                let theme = self.theme;
                 ui.horizontal(|ui| {
                     ui.label("Health:");
                     let (health_text, health_color) = match node.health {
-                        HealthStatus::Healthy => ("Healthy", NEURON_ACTIVE),
-                        HealthStatus::Warning => ("Warning", NEURON_WARNING),
-                        HealthStatus::Critical => ("Critical", NEURON_CRITICAL),
+                        HealthStatus::Healthy => ("Healthy", theme.neuron_active()),
+                        HealthStatus::Warning => ("Warning", theme.neuron_warning()),
+                        HealthStatus::Critical => ("Critical", theme.neuron_critical()),
                     };
                     ui.label(egui::RichText::new(health_text).color(health_color));
                 });
@@ -766,27 +899,50 @@ impl NeuronicApp {
             }
         }
 
-        // Handle drag for pan
-        if response.dragged_by(egui::PointerButton::Primary) {
-            // Check if we clicked on a node first
+        // Handle drag start - check if we're starting to drag a node
+        if response.drag_started_by(egui::PointerButton::Primary) {
             if let Some(pos) = response.interact_pointer_pos() {
-                let mut on_node = false;
+                // Find if we clicked on a node
+                let mut found_node = None;
                 for node in self.flow_graph.graph.node_weights() {
                     if let Some(world_pos) = self.node_positions.get(&node.name) {
                         let screen_pos = self.world_to_screen(*world_pos, rect);
                         let radius =
                             (12.0 + (node.throughput() as f32).log10().max(0.0) * 2.0) * self.zoom;
                         if (screen_pos - pos).length() < radius + 5.0 {
-                            on_node = true;
+                            found_node = Some(node.name.clone());
                             break;
                         }
                     }
                 }
-
-                if !on_node {
-                    self.pan += response.drag_delta();
-                }
+                self.dragged_node = found_node;
             }
+        }
+
+        // Handle ongoing drag
+        if response.dragged_by(egui::PointerButton::Primary) {
+            let drag_delta = response.drag_delta();
+
+            if let Some(ref node_name) = self.dragged_node {
+                // Dragging a node - move it in world coordinates
+                // Convert screen delta to world delta (account for zoom)
+                let world_delta = drag_delta / self.zoom;
+                if let Some(pos) = self.node_positions.get_mut(node_name) {
+                    *pos += world_delta;
+                }
+                // Also zero out velocity so physics doesn't fight with dragging
+                if let Some(vel) = self.node_velocities.get_mut(node_name) {
+                    *vel = Vec2::ZERO;
+                }
+            } else {
+                // Not dragging a node - pan the view
+                self.pan += drag_delta;
+            }
+        }
+
+        // Handle drag end
+        if response.drag_stopped() {
+            self.dragged_node = None;
         }
 
         // Handle click for node selection
@@ -838,12 +994,53 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
+/// Calculate a point on a quadratic Bezier curve.
+/// t is in range [0, 1], p0 is start, p1 is control, p2 is end.
+fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
+    let t = t.clamp(0.0, 1.0);
+    let mt = 1.0 - t;
+    Pos2::new(
+        mt * mt * p0.x + 2.0 * mt * t * p1.x + t * t * p2.x,
+        mt * mt * p0.y + 2.0 * mt * t * p1.y + t * t * p2.y,
+    )
+}
+
+/// Generate points along a quadratic Bezier curve for rendering.
+fn bezier_points(p0: Pos2, p1: Pos2, p2: Pos2, segments: usize) -> Vec<Pos2> {
+    (0..=segments)
+        .map(|i| {
+            let t = i as f32 / segments as f32;
+            quadratic_bezier(p0, p1, p2, t)
+        })
+        .collect()
+}
+
+/// Calculate tangent direction at a point on a quadratic Bezier curve.
+fn bezier_tangent(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Vec2 {
+    let t = t.clamp(0.0, 1.0);
+    let mt = 1.0 - t;
+    Vec2::new(
+        2.0 * mt * (p1.x - p0.x) + 2.0 * t * (p2.x - p1.x),
+        2.0 * mt * (p1.y - p0.y) + 2.0 * t * (p2.y - p1.y),
+    )
+    .normalized()
+}
+
 impl eframe::App for NeuronicApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Calculate delta time
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32();
         self.last_frame = now;
+
+        // Apply theme to egui visuals
+        let mut visuals = match self.theme {
+            Theme::Dark => egui::Visuals::dark(),
+            Theme::Light => egui::Visuals::light(),
+        };
+        visuals.panel_fill = self.theme.panel_fill();
+        visuals.window_fill = self.theme.panel_fill();
+        ctx.set_visuals(visuals);
 
         // Process incoming data
         self.process_snapshots();
