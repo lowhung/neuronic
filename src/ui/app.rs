@@ -62,7 +62,7 @@ pub struct NeuronicApp {
     connection_error: Option<String>,
     /// Selected node for details panel.
     selected_node: Option<String>,
-    /// Node positions for layout.
+    /// Node positions for layout (in world coordinates).
     node_positions: HashMap<String, Pos2>,
     /// Node velocities for smoother physics.
     node_velocities: HashMap<String, Vec2>,
@@ -70,14 +70,14 @@ pub struct NeuronicApp {
     node_activity: HashMap<String, NodeActivity>,
     /// Synapse particles for edge animations.
     synapse_particles: HashMap<(String, String, String), Vec<SynapseParticle>>,
-    /// Zoom level (reserved for future use).
-    #[allow(dead_code)]
+    /// Zoom level.
     zoom: f32,
-    /// Pan offset (reserved for future use).
-    #[allow(dead_code)]
+    /// Pan offset (in screen coordinates).
     pan: Vec2,
     /// Whether to show topic labels.
     show_labels: bool,
+    /// Whether to show legend.
+    show_legend: bool,
     /// Paused state.
     paused: bool,
     /// Stats.
@@ -142,10 +142,26 @@ impl NeuronicApp {
             zoom: 1.0,
             pan: Vec2::ZERO,
             show_labels: true,
+            show_legend: true,
             paused: false,
             update_count: 0,
             last_frame: Instant::now(),
         }
+    }
+
+    /// Convert world position to screen position.
+    fn world_to_screen(&self, world_pos: Pos2, rect: Rect) -> Pos2 {
+        let center = rect.center();
+        let offset = (world_pos - center) * self.zoom;
+        center + offset + self.pan
+    }
+
+    /// Convert screen position to world position.
+    #[allow(dead_code)]
+    fn screen_to_world(&self, screen_pos: Pos2, rect: Rect) -> Pos2 {
+        let center = rect.center();
+        let offset = screen_pos - center - self.pan;
+        center + offset / self.zoom
     }
 
     /// Process incoming snapshots.
@@ -351,11 +367,6 @@ impl NeuronicApp {
 
             if let Some(pos) = self.node_positions.get_mut(&node.name) {
                 *pos += *vel;
-
-                // Keep in bounds with padding
-                let padding = 80.0;
-                pos.x = pos.x.clamp(rect.left() + padding, rect.right() - padding);
-                pos.y = pos.y.clamp(rect.top() + padding, rect.bottom() - padding);
             }
         }
     }
@@ -386,7 +397,7 @@ impl NeuronicApp {
     fn draw_graph(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let painter = ui.painter_at(rect);
 
-        // Apply layout
+        // Apply layout (in world coordinates)
         self.apply_layout(rect);
 
         // Draw edges (synapses) first
@@ -396,16 +407,20 @@ impl NeuronicApp {
                 let target_node = &self.flow_graph.graph[target];
                 let edge = &self.flow_graph.graph[edge_idx];
 
-                let pos_s = self
+                let world_s = self
                     .node_positions
                     .get(&source_node.name)
                     .copied()
                     .unwrap_or(rect.center());
-                let pos_t = self
+                let world_t = self
                     .node_positions
                     .get(&target_node.name)
                     .copied()
                     .unwrap_or(rect.center());
+
+                // Convert to screen coordinates
+                let pos_s = self.world_to_screen(world_s, rect);
+                let pos_t = self.world_to_screen(world_t, rect);
 
                 // Edge color based on health
                 let edge_color = match edge.health {
@@ -414,16 +429,17 @@ impl NeuronicApp {
                     HealthStatus::Critical => NEURON_CRITICAL.gamma_multiply(0.7),
                 };
 
-                // Thinner lines
-                let width = 1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3;
+                // Thinner lines, scaled by zoom
+                let width =
+                    (1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3) * self.zoom;
 
                 painter.line_segment([pos_s, pos_t], Stroke::new(width, edge_color));
 
-                // Draw arrow (smaller)
+                // Draw arrow (smaller), scaled by zoom
                 let dir = (pos_t - pos_s).normalized();
-                let node_radius = 12.0;
-                let arrow_pos = pos_t - dir * (node_radius + 8.0);
-                let arrow_size = 5.0;
+                let node_radius = 12.0 * self.zoom;
+                let arrow_pos = pos_t - dir * (node_radius + 8.0 * self.zoom);
+                let arrow_size = 5.0 * self.zoom;
                 let perp = Vec2::new(-dir.y, dir.x);
                 let arrow_points = vec![
                     arrow_pos + dir * arrow_size,
@@ -446,7 +462,7 @@ impl NeuronicApp {
                     for particle in particles {
                         let particle_pos = pos_s + (pos_t - pos_s) * particle.progress;
                         let particle_color = SYNAPSE_ACTIVE;
-                        let glow_radius = 4.0;
+                        let glow_radius = 4.0 * self.zoom;
                         // Glow effect
                         painter.circle_filled(
                             particle_pos,
@@ -458,13 +474,13 @@ impl NeuronicApp {
                 }
 
                 // Topic label (smaller, more transparent)
-                if self.show_labels {
+                if self.show_labels && self.zoom > 0.5 {
                     let mid = pos_s + (pos_t - pos_s) * 0.5;
                     painter.text(
                         mid,
                         egui::Align2::CENTER_CENTER,
                         &edge.topic,
-                        egui::FontId::proportional(9.0),
+                        egui::FontId::proportional(9.0 * self.zoom),
                         Color32::from_rgba_unmultiplied(150, 150, 180, 180),
                     );
                 }
@@ -473,15 +489,18 @@ impl NeuronicApp {
 
         // Draw nodes (neurons)
         for node in self.flow_graph.graph.node_weights() {
-            let pos = self
+            let world_pos = self
                 .node_positions
                 .get(&node.name)
                 .copied()
                 .unwrap_or(rect.center());
 
-            // Smaller base radius
-            let base_radius = 12.0;
-            let radius = base_radius + (node.throughput() as f32).log10().max(0.0) * 2.0;
+            let pos = self.world_to_screen(world_pos, rect);
+
+            // Smaller base radius, scaled by zoom
+            let base_radius = 12.0 * self.zoom;
+            let radius =
+                base_radius + (node.throughput() as f32).log10().max(0.0) * 2.0 * self.zoom;
 
             let color = self.get_neuron_color(node);
             let is_selected = self.selected_node.as_ref() == Some(&node.name);
@@ -492,7 +511,7 @@ impl NeuronicApp {
 
             if fire_intensity > 0.1 {
                 // Outer glow
-                let glow_radius = radius + 8.0 + fire_intensity * 10.0;
+                let glow_radius = radius + (8.0 + fire_intensity * 10.0) * self.zoom;
                 let glow_color = NEURON_ACTIVE.gamma_multiply(fire_intensity * 0.4);
                 painter.circle_filled(pos, glow_radius, glow_color);
             }
@@ -506,18 +525,79 @@ impl NeuronicApp {
 
             // Selection highlight
             if is_selected {
-                painter.circle_stroke(pos, radius + 4.0, Stroke::new(2.0, Color32::WHITE));
+                painter.circle_stroke(
+                    pos,
+                    radius + 4.0 * self.zoom,
+                    Stroke::new(2.0, Color32::WHITE),
+                );
             }
 
-            // Node label (smaller)
-            painter.text(
-                pos + Vec2::new(0.0, radius + 10.0),
-                egui::Align2::CENTER_CENTER,
-                &node.name,
-                egui::FontId::proportional(10.0),
-                Color32::from_rgb(200, 200, 220),
-            );
+            // Node label (smaller), only show if zoomed in enough
+            if self.zoom > 0.4 {
+                painter.text(
+                    pos + Vec2::new(0.0, radius + 10.0 * self.zoom),
+                    egui::Align2::CENTER_CENTER,
+                    &node.name,
+                    egui::FontId::proportional(10.0 * self.zoom),
+                    Color32::from_rgb(200, 200, 220),
+                );
+            }
         }
+    }
+
+    /// Draw the legend panel.
+    fn draw_legend(&self, ui: &mut egui::Ui) {
+        ui.heading("Legend");
+        ui.separator();
+
+        ui.label("Node Status:");
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+            ui.painter().circle_filled(rect.center(), 6.0, NEURON_BASE);
+            ui.label("Healthy");
+        });
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), 6.0, NEURON_WARNING);
+            ui.label("Warning");
+        });
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), 6.0, NEURON_CRITICAL);
+            ui.label("Critical");
+        });
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), 6.0, NEURON_ACTIVE);
+            ui.label("Active (firing)");
+        });
+
+        ui.add_space(8.0);
+        ui.label("Node Size:");
+        ui.label("  Larger = higher throughput");
+
+        ui.add_space(8.0);
+        ui.label("Edge Width:");
+        ui.label("  Thicker = higher msg rate");
+
+        ui.add_space(8.0);
+        ui.label("Particles:");
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), 4.0, SYNAPSE_ACTIVE);
+            ui.label("Message flow");
+        });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label("Controls:");
+        ui.label("  Scroll: Zoom");
+        ui.label("  Drag: Pan");
+        ui.label("  Click: Select node");
     }
 
     /// Draw the control panel.
@@ -551,6 +631,24 @@ impl NeuronicApp {
 
             // Show labels toggle
             ui.checkbox(&mut self.show_labels, "Labels");
+
+            // Show legend toggle
+            ui.checkbox(&mut self.show_legend, "Legend");
+
+            ui.separator();
+
+            // Zoom controls
+            if ui.button("−").clicked() {
+                self.zoom = (self.zoom * 0.8).max(0.1);
+            }
+            ui.label(format!("{:.0}%", self.zoom * 100.0));
+            if ui.button("+").clicked() {
+                self.zoom = (self.zoom * 1.25).min(5.0);
+            }
+            if ui.button("Reset").clicked() {
+                self.zoom = 1.0;
+                self.pan = Vec2::ZERO;
+            }
 
             ui.separator();
 
@@ -613,6 +711,74 @@ impl NeuronicApp {
             ui.label("Click a neuron to see details");
         }
     }
+
+    /// Handle zoom and pan input.
+    fn handle_input(&mut self, ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+
+        // Handle scroll for zoom
+        let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
+        if scroll_delta != 0.0 {
+            let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
+            let new_zoom = (self.zoom * zoom_factor).clamp(0.1, 5.0);
+
+            // Zoom towards mouse position
+            if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                if rect.contains(mouse_pos) {
+                    let center = rect.center();
+                    let mouse_offset = mouse_pos - center - self.pan;
+
+                    // Adjust pan to keep mouse position stable
+                    self.pan = self.pan + mouse_offset * (1.0 - new_zoom / self.zoom);
+                    self.zoom = new_zoom;
+                }
+            }
+        }
+
+        // Handle drag for pan
+        if response.dragged_by(egui::PointerButton::Primary) {
+            // Check if we clicked on a node first
+            if let Some(pos) = response.interact_pointer_pos() {
+                let mut on_node = false;
+                for node in self.flow_graph.graph.node_weights() {
+                    if let Some(world_pos) = self.node_positions.get(&node.name) {
+                        let screen_pos = self.world_to_screen(*world_pos, rect);
+                        let radius =
+                            (12.0 + (node.throughput() as f32).log10().max(0.0) * 2.0) * self.zoom;
+                        if (screen_pos - pos).length() < radius + 5.0 {
+                            on_node = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !on_node {
+                    self.pan += response.drag_delta();
+                }
+            }
+        }
+
+        // Handle click for node selection
+        if response.clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let mut clicked_node = None;
+                for node in self.flow_graph.graph.node_weights() {
+                    if let Some(world_pos) = self.node_positions.get(&node.name) {
+                        let screen_pos = self.world_to_screen(*world_pos, rect);
+                        let radius =
+                            (12.0 + (node.throughput() as f32).log10().max(0.0) * 2.0) * self.zoom;
+                        if (screen_pos - pos).length() < radius + 5.0 {
+                            clicked_node = Some(node.name.clone());
+                            break;
+                        }
+                    }
+                }
+                self.selected_node = clicked_node;
+            }
+        }
+
+        response
+    }
 }
 
 /// Linearly interpolate between two colors.
@@ -652,30 +818,19 @@ impl eframe::App for NeuronicApp {
             .min_width(200.0)
             .show(ctx, |ui| {
                 self.draw_details(ui);
+
+                if self.show_legend {
+                    ui.add_space(16.0);
+                    self.draw_legend(ui);
+                }
             });
 
         // Central panel with graph
         egui::CentralPanel::default().show(ctx, |ui| {
             let rect = ui.available_rect_before_wrap();
 
-            // Handle clicks on nodes
-            let response = ui.allocate_rect(rect, egui::Sense::click());
-            if response.clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    // Find clicked node
-                    let mut clicked_node = None;
-                    for node in self.flow_graph.graph.node_weights() {
-                        if let Some(node_pos) = self.node_positions.get(&node.name) {
-                            let radius = 12.0 + (node.throughput() as f32).log10().max(0.0) * 2.0;
-                            if (*node_pos - pos).length() < radius + 5.0 {
-                                clicked_node = Some(node.name.clone());
-                                break;
-                            }
-                        }
-                    }
-                    self.selected_node = clicked_node;
-                }
-            }
+            // Handle input (zoom, pan, click)
+            self.handle_input(ui, rect);
 
             self.draw_graph(ui, rect);
         });
