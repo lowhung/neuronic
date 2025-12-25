@@ -2,3 +2,17 @@
 class = "rabbit-mq"
 url = "amqp://127.0.0.1:5672/%2f"
 exchange = "caryatid"
+
+# Filter settings
+[filter]
+# Topic prefixes to ignore (too noisy)
+ignored_topics = [
+    "cardano.query.",
+]
+
+# Graph health thresholds
+[graph]
+backlog_warning = 100
+backlog_critical = 1000
+pending_warning_ms = 500
+pending_critical_ms = 2000

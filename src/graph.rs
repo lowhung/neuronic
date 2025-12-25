@@ -121,16 +121,24 @@ impl MessageFlowGraph {
         }
     }
 
-    /// Create a graph with custom health config.
-    #[cfg(test)]
-    pub fn with_config(health_config: HealthConfig) -> Self {
+    /// Create a graph with custom health config and ignored topics.
+    pub fn new_with_config(
+        health_config: HealthConfig,
+        ignored_topic_prefixes: Vec<String>,
+    ) -> Self {
         Self {
             graph: DiGraph::new(),
             module_indices: HashMap::new(),
             health_config,
             last_update_ms: 0,
-            ignored_topic_prefixes: vec![],
+            ignored_topic_prefixes,
         }
+    }
+
+    /// Create a graph with custom health config (for tests).
+    #[cfg(test)]
+    pub fn with_config(health_config: HealthConfig) -> Self {
+        Self::new_with_config(health_config, vec![])
     }
 
     /// Check if a topic should be ignored.

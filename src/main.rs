@@ -3,9 +3,12 @@
 //! A GUI application that subscribes to monitor snapshots and renders
 //! an interactive force-directed graph showing message flow between modules.
 
+mod config;
 mod graph;
 mod subscriber;
 mod ui;
+
+pub use config::NeuronicConfig;
 
 use anyhow::Result;
 use clap::Parser;
@@ -35,7 +38,9 @@ fn main() -> Result<()> {
     // Initialize tracing
     let filter = if args.debug { "debug" } else { "info" };
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -54,9 +59,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Neuronic",
         options,
-        Box::new(move |cc| {
-            Ok(Box::new(ui::NeuronicApp::new(cc, args.config, args.topic)))
-        }),
+        Box::new(move |cc| Ok(Box::new(ui::NeuronicApp::new(cc, args.config, args.topic)))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))
 }

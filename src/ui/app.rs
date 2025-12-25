@@ -1,6 +1,7 @@
 //! Main application window.
 
-use crate::graph::{HealthStatus, MessageFlowGraph, ModuleNode, TopicEdge};
+use crate::config::NeuronicConfig;
+use crate::graph::{HealthConfig, HealthStatus, MessageFlowGraph, ModuleNode, TopicEdge};
 use crate::subscriber;
 use buswatch_types::Snapshot;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
@@ -89,11 +90,29 @@ pub struct NeuronicApp {
 impl NeuronicApp {
     /// Create a new application.
     pub fn new(cc: &eframe::CreationContext<'_>, config_path: PathBuf, topic: String) -> Self {
+        // Load configuration
+        let neuronic_config = NeuronicConfig::load(&config_path).unwrap_or_else(|e| {
+            tracing::warn!("Failed to load config: {}, using defaults", e);
+            NeuronicConfig::default()
+        });
+
         // Set up dark theme with darker background
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = Color32::from_rgb(15, 15, 25);
         visuals.window_fill = Color32::from_rgb(20, 20, 35);
         cc.egui_ctx.set_visuals(visuals);
+
+        // Create the graph with config
+        let health_config = HealthConfig {
+            backlog_warning: neuronic_config.graph.backlog_warning,
+            backlog_critical: neuronic_config.graph.backlog_critical,
+            pending_warning_us: neuronic_config.graph.pending_warning_ms * 1000,
+            pending_critical_us: neuronic_config.graph.pending_critical_ms * 1000,
+        };
+        let flow_graph = MessageFlowGraph::new_with_config(
+            health_config,
+            neuronic_config.filter.ignored_topics.clone(),
+        );
 
         // Create tokio runtime
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -128,7 +147,7 @@ impl NeuronicApp {
         };
 
         Self {
-            flow_graph: MessageFlowGraph::new(),
+            flow_graph,
             egui_graph: Graph::new(StableGraph::new()),
             snapshot_rx: Some(sync_rx),
             _runtime: runtime,
