@@ -7,7 +7,7 @@ use buswatch_types::Snapshot;
 use egui::{Pos2, Vec2};
 use egui_graphs::Graph;
 use petgraph::stable_graph::StableGraph;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc as std_mpsc;
 use std::time::Instant;
@@ -15,7 +15,6 @@ use std::time::Instant;
 use super::animations;
 use super::drawing::{self, DrawContext};
 use super::export;
-use super::history;
 use super::input::{self, KeyboardAction};
 use super::layout;
 use super::panels;
@@ -54,12 +53,6 @@ pub struct NeuronicApp {
     synapse_particles: HashMap<(String, String, String), Vec<SynapseParticle>>,
     pulse_rings: HashMap<String, Vec<PulseRing>>,
     last_frame: Instant,
-
-    // History and replay
-    snapshot_history: VecDeque<SnapshotEntry>,
-    history_max_size: usize,
-    playback_position: Option<usize>,
-    replay_mode: bool,
 
     // Filtering and grouping
     topic_filters: Vec<String>,
@@ -155,10 +148,6 @@ impl NeuronicApp {
             synapse_particles: HashMap::new(),
             pulse_rings: HashMap::new(),
             last_frame: Instant::now(),
-            snapshot_history: VecDeque::new(),
-            history_max_size: 1000,
-            playback_position: None,
-            replay_mode: false,
             topic_filters: neuronic_config.filter.ignored_topics.clone(),
             new_filter: String::new(),
             node_groups: Vec::new(),
@@ -178,7 +167,7 @@ impl NeuronicApp {
     }
 
     fn process_snapshots(&mut self) {
-        if self.paused || self.replay_mode {
+        if self.paused {
             if let Some(rx) = &self.snapshot_rx {
                 while rx.try_recv().is_ok() {}
             }
@@ -198,12 +187,6 @@ impl NeuronicApp {
                     &mut self.synapse_particles,
                     &mut self.pulse_rings,
                     self.show_pulse_rings,
-                );
-
-                history::add_to_history(
-                    &mut self.snapshot_history,
-                    snapshot.clone(),
-                    self.history_max_size,
                 );
 
                 self.flow_graph.update_from_snapshot(&snapshot);
@@ -333,16 +316,6 @@ impl NeuronicApp {
                 self.update_count
             ));
         });
-
-        // History controls on second row if in replay mode or history available
-        if !self.snapshot_history.is_empty() {
-            panels::draw_history_controls(
-                ui,
-                &self.snapshot_history,
-                &mut self.playback_position,
-                &mut self.replay_mode,
-            );
-        }
     }
 }
 

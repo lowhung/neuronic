@@ -2,10 +2,9 @@
 
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
-use std::collections::VecDeque;
 
 use super::theme::Theme;
-use super::types::{NodeActivity, NodeGroup, SnapshotEntry};
+use super::types::{NodeActivity, NodeGroup};
 
 /// Draw the details panel for a selected node.
 pub fn draw_details_panel(
@@ -208,68 +207,6 @@ pub fn draw_group_panel(
         }
         if ui.button("_validator").clicked() {
             *new_pattern = "_validator".to_string();
-        }
-    });
-}
-
-/// Draw the history/replay controls.
-pub fn draw_history_controls(
-    ui: &mut egui::Ui,
-    history: &VecDeque<SnapshotEntry>,
-    playback_position: &mut Option<usize>,
-    replay_mode: &mut bool,
-) {
-    ui.horizontal(|ui| {
-        // Live/Replay toggle
-        if *replay_mode {
-            if ui.button("Live").clicked() {
-                *replay_mode = false;
-                *playback_position = None;
-            }
-        } else {
-            if ui.button("History").clicked() && !history.is_empty() {
-                *replay_mode = true;
-                *playback_position = Some(history.len().saturating_sub(1));
-            }
-        }
-
-        if *replay_mode && !history.is_empty() {
-            ui.separator();
-
-            // Step backward
-            if ui.button("|<").clicked() {
-                *playback_position = Some(0);
-            }
-            if ui.button("<").clicked() {
-                if let Some(pos) = playback_position {
-                    *playback_position = Some(pos.saturating_sub(1));
-                }
-            }
-
-            // Position slider
-            let mut pos = playback_position.unwrap_or(0) as f32;
-            let max = (history.len().saturating_sub(1)) as f32;
-            if ui
-                .add(egui::Slider::new(&mut pos, 0.0..=max).show_value(false))
-                .changed()
-            {
-                *playback_position = Some(pos as usize);
-            }
-
-            // Step forward
-            if ui.button(">").clicked() {
-                if let Some(pos) = playback_position {
-                    *playback_position = Some((*pos + 1).min(history.len().saturating_sub(1)));
-                }
-            }
-            if ui.button(">|").clicked() {
-                *playback_position = Some(history.len().saturating_sub(1));
-            }
-
-            // Show position
-            if let Some(pos) = *playback_position {
-                ui.label(format!("{}/{}", pos + 1, history.len()));
-            }
         }
     });
 }

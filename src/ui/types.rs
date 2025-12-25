@@ -53,10 +53,3 @@ pub struct NodeGroup {
     pub collapsed: bool,
     pub color: Color32,
 }
-
-/// Snapshot history entry for replay.
-#[derive(Clone)]
-pub struct SnapshotEntry {
-    pub snapshot: buswatch_types::Snapshot,
-    pub timestamp: Instant,
-}
