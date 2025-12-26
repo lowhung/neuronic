@@ -1,14 +1,9 @@
 //! Main application window.
 
 use crate::config::NeuronicConfig;
-use crate::graph::{MessageFlowGraph, ModuleNode, TopicEdge};
+use crate::graph::MessageFlowGraph;
 use crate::subscriber;
-use buswatch_types::Snapshot;
-use egui::{Pos2, Vec2};
-use egui_graphs::Graph;
-use petgraph::stable_graph::StableGraph;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use egui::Vec2;
 use std::sync::mpsc as std_mpsc;
 use std::time::Instant;
 
@@ -19,63 +14,29 @@ use super::input::{self, KeyboardAction};
 use super::layout;
 use super::panels;
 use super::search;
+use super::state::{
+    AnimationState, ConnectionState, FilterState, InteractionState, UIPreferences, ViewState,
+};
 use super::theme::Theme;
-use super::types::*;
+
+use std::path::PathBuf;
 
 /// Main application state.
 pub struct NeuronicApp {
-    // Data and connection
-    flow_graph: MessageFlowGraph,
-    #[allow(dead_code)]
-    egui_graph: Graph<ModuleNode, TopicEdge>,
-    snapshot_rx: Option<std_mpsc::Receiver<Snapshot>>,
-    _runtime: tokio::runtime::Runtime,
-    connected: bool,
-    connection_error: Option<String>,
-
-    // Layout and positioning
-    node_positions: HashMap<String, Pos2>,
-    node_velocities: HashMap<String, Vec2>,
-    layout_mode: LayoutMode,
-    zoom: f32,
-    pan: Vec2,
-
-    // Selection and interaction
-    selected_node: Option<String>,
-    selected_edge: Option<SelectedEdge>,
-    dragged_node: Option<String>,
-    search_query: String,
-    search_focused: bool,
-    highlighted_node: Option<String>,
-    search_matches: Vec<String>,
-
-    // Animation state
-    node_activity: HashMap<String, NodeActivity>,
-    synapse_particles: HashMap<(String, String, String), Vec<SynapseParticle>>,
-    pulse_rings: HashMap<String, Vec<PulseRing>>,
-    last_frame: Instant,
-
-    // Filtering and grouping
-    topic_filters: Vec<String>,
-    new_filter: String,
-    node_groups: Vec<NodeGroup>,
-    new_group_pattern: String,
-
-    // UI visibility toggles
-    show_labels: bool,
-    show_legend: bool,
-    show_filter_panel: bool,
-    show_group_panel: bool,
-    show_gradient_edges: bool,
-    show_pulse_rings: bool,
-    show_minimap: bool,
-    #[allow(dead_code)]
-    sound_enabled: bool,
-    paused: bool,
-    theme: Theme,
-
-    // Stats
-    update_count: u64,
+    /// Connection and data flow state.
+    pub connection: ConnectionState,
+    /// View and camera state.
+    pub view: ViewState,
+    /// User interaction state.
+    pub interaction: InteractionState,
+    /// Animation effects state.
+    pub animation: AnimationState,
+    /// Filtering and grouping state.
+    pub filters: FilterState,
+    /// UI display preferences.
+    pub preferences: UIPreferences,
+    /// Count of processed updates.
+    pub update_count: u64,
 }
 
 impl NeuronicApp {
@@ -121,57 +82,45 @@ impl NeuronicApp {
             }
         };
 
-        Self {
+        // Initialize connection state
+        let connection = ConnectionState {
             flow_graph,
-            egui_graph: Graph::new(StableGraph::new()),
             snapshot_rx: Some(sync_rx),
-            _runtime: runtime,
+            runtime,
             connected,
             connection_error,
-            node_positions: HashMap::new(),
-            node_velocities: HashMap::new(),
-            layout_mode: LayoutMode::ForceDirected,
-            zoom: 1.0,
-            pan: Vec2::ZERO,
-            selected_node: None,
-            selected_edge: None,
-            dragged_node: None,
-            search_query: String::new(),
-            search_focused: false,
-            highlighted_node: None,
-            search_matches: Vec::new(),
-            node_activity: HashMap::new(),
-            synapse_particles: HashMap::new(),
-            pulse_rings: HashMap::new(),
-            last_frame: Instant::now(),
-            topic_filters: neuronic_config.filter.ignored_topics.clone(),
-            new_filter: String::new(),
-            node_groups: Vec::new(),
-            new_group_pattern: String::new(),
-            show_labels: true,
-            show_legend: true,
-            show_filter_panel: false,
-            show_group_panel: false,
-            show_gradient_edges: false,
-            show_pulse_rings: true,
-            show_minimap: false,
-            sound_enabled: false,
-            paused: false,
+        };
+
+        // Initialize preferences with theme
+        let preferences = UIPreferences {
             theme,
+            ..UIPreferences::default()
+        };
+
+        // Initialize filters from config
+        let filters = FilterState::with_filters(neuronic_config.filter.ignored_topics.clone());
+
+        Self {
+            connection,
+            view: ViewState::default(),
+            interaction: InteractionState::default(),
+            animation: AnimationState::default(),
+            filters,
+            preferences,
             update_count: 0,
         }
     }
 
     fn process_snapshots(&mut self) {
-        if self.paused {
-            if let Some(rx) = &self.snapshot_rx {
+        if self.preferences.paused {
+            if let Some(rx) = &self.connection.snapshot_rx {
                 while rx.try_recv().is_ok() {}
             }
             return;
         }
 
-        if let Some(rx) = &self.snapshot_rx {
-            let mut latest: Option<Snapshot> = None;
+        if let Some(rx) = &self.connection.snapshot_rx {
+            let mut latest = None;
             while let Ok(snapshot) = rx.try_recv() {
                 latest = Some(snapshot);
             }
@@ -179,13 +128,13 @@ impl NeuronicApp {
             if let Some(snapshot) = latest {
                 animations::detect_activity(
                     &snapshot,
-                    &mut self.node_activity,
-                    &mut self.synapse_particles,
-                    &mut self.pulse_rings,
-                    self.show_pulse_rings,
+                    &mut self.animation.node_activity,
+                    &mut self.animation.synapse_particles,
+                    &mut self.animation.pulse_rings,
+                    self.preferences.show_pulse_rings,
                 );
 
-                self.flow_graph.update_from_snapshot(&snapshot);
+                self.connection.flow_graph.update_from_snapshot(&snapshot);
                 self.update_count += 1;
             }
         }
@@ -194,14 +143,20 @@ impl NeuronicApp {
     fn draw_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             // Connection status
-            if self.connected {
-                ui.label(egui::RichText::new("● Connected").color(self.theme.neuron_active()));
+            if self.connection.connected {
+                ui.label(
+                    egui::RichText::new("● Connected")
+                        .color(self.preferences.theme.neuron_active()),
+                );
             } else {
-                ui.label(egui::RichText::new("● Disconnected").color(self.theme.neuron_critical()));
-                if let Some(err) = &self.connection_error {
+                ui.label(
+                    egui::RichText::new("● Disconnected")
+                        .color(self.preferences.theme.neuron_critical()),
+                );
+                if let Some(err) = &self.connection.connection_error {
                     ui.label(
                         egui::RichText::new(err)
-                            .color(self.theme.neuron_critical())
+                            .color(self.preferences.theme.neuron_critical())
                             .small(),
                     );
                 }
@@ -210,35 +165,43 @@ impl NeuronicApp {
             ui.separator();
 
             // Search box
-            let old_query = self.search_query.clone();
+            let old_query = self.interaction.search.query.clone();
             if let Some(selected) = search::draw_search_box(
                 ui,
-                &mut self.search_query,
-                &mut self.search_focused,
-                &self.search_matches,
+                &mut self.interaction.search.query,
+                &mut self.interaction.search.focused,
+                &self.interaction.search.matches,
             ) {
-                self.highlighted_node = Some(selected.clone());
-                self.selected_node = Some(selected);
+                self.interaction.search.highlighted_node = Some(selected.clone());
+                self.interaction.selected_node = Some(selected);
             }
 
-            if self.search_query != old_query {
-                self.search_matches =
-                    search::find_matching_modules(&self.flow_graph, &self.search_query);
-                self.highlighted_node =
-                    search::get_best_match(&self.search_matches, &self.search_query);
+            if self.interaction.search.query != old_query {
+                self.interaction.search.matches = search::find_matching_modules(
+                    &self.connection.flow_graph,
+                    &self.interaction.search.query,
+                );
+                self.interaction.search.highlighted_node = search::get_best_match(
+                    &self.interaction.search.matches,
+                    &self.interaction.search.query,
+                );
             }
 
             ui.separator();
 
             // Layout toggle
-            let layout_label = match self.layout_mode {
-                LayoutMode::ForceDirected => "Force",
-                LayoutMode::Hierarchical => "Hierarchy",
+            let layout_label = match self.view.layout_mode {
+                super::types::LayoutMode::ForceDirected => "Force",
+                super::types::LayoutMode::Hierarchical => "Hierarchy",
             };
             if ui.button(layout_label).clicked() {
-                self.layout_mode = match self.layout_mode {
-                    LayoutMode::ForceDirected => LayoutMode::Hierarchical,
-                    LayoutMode::Hierarchical => LayoutMode::ForceDirected,
+                self.view.layout_mode = match self.view.layout_mode {
+                    super::types::LayoutMode::ForceDirected => {
+                        super::types::LayoutMode::Hierarchical
+                    }
+                    super::types::LayoutMode::Hierarchical => {
+                        super::types::LayoutMode::ForceDirected
+                    }
                 };
             }
 
@@ -246,60 +209,69 @@ impl NeuronicApp {
 
             // Theme toggle
             if ui
-                .button(if self.theme == Theme::Dark {
+                .button(if self.preferences.theme == Theme::Dark {
                     "Light"
                 } else {
                     "Dark"
                 })
                 .clicked()
             {
-                self.theme = self.theme.toggle();
+                self.preferences.theme = self.preferences.theme.toggle();
             }
 
             // Pause button
             if ui
-                .button(if self.paused { "Resume" } else { "Pause" })
+                .button(if self.preferences.paused {
+                    "Resume"
+                } else {
+                    "Pause"
+                })
                 .clicked()
             {
-                self.paused = !self.paused;
+                self.preferences.paused = !self.preferences.paused;
             }
 
             ui.separator();
 
             // Toggle buttons
-            ui.checkbox(&mut self.show_labels, "Labels");
-            ui.checkbox(&mut self.show_minimap, "Minimap");
-            ui.checkbox(&mut self.show_gradient_edges, "Gradient");
-            ui.checkbox(&mut self.show_pulse_rings, "Pulses");
+            ui.checkbox(&mut self.preferences.show_labels, "Labels");
+            ui.checkbox(&mut self.preferences.show_minimap, "Minimap");
+            ui.checkbox(&mut self.preferences.show_gradient_edges, "Gradient");
+            ui.checkbox(&mut self.preferences.show_pulse_rings, "Pulses");
 
             ui.separator();
 
             // Panel toggles
             if ui.button("Filters").clicked() {
-                self.show_filter_panel = !self.show_filter_panel;
+                self.preferences.show_filter_panel = !self.preferences.show_filter_panel;
             }
             if ui.button("Groups").clicked() {
-                self.show_group_panel = !self.show_group_panel;
+                self.preferences.show_group_panel = !self.preferences.show_group_panel;
             }
 
             ui.separator();
 
             // Export
-            export::show_export_dialog(ui, &self.flow_graph, &self.node_positions, &self.theme);
+            export::show_export_dialog(
+                ui,
+                &self.connection.flow_graph,
+                &self.view.node_positions,
+                &self.preferences.theme,
+            );
 
             ui.separator();
 
             // Zoom controls
             if ui.button("-").clicked() {
-                self.zoom = (self.zoom * 0.8).max(0.1);
+                self.view.zoom = (self.view.zoom * 0.8).max(0.1);
             }
-            ui.label(format!("{:.0}%", self.zoom * 100.0));
+            ui.label(format!("{:.0}%", self.view.zoom * 100.0));
             if ui.button("+").clicked() {
-                self.zoom = (self.zoom * 1.25).min(5.0);
+                self.view.zoom = (self.view.zoom * 1.25).min(5.0);
             }
             if ui.button("Reset").clicked() {
-                self.zoom = 1.0;
-                self.pan = Vec2::ZERO;
+                self.view.zoom = 1.0;
+                self.view.pan = Vec2::ZERO;
             }
 
             ui.separator();
@@ -307,8 +279,8 @@ impl NeuronicApp {
             // Stats
             ui.label(format!(
                 "Nodes: {} | Edges: {} | Updates: {}",
-                self.flow_graph.module_count(),
-                self.flow_graph.edge_count(),
+                self.connection.flow_graph.module_count(),
+                self.connection.flow_graph.edge_count(),
                 self.update_count
             ));
         });
@@ -318,29 +290,29 @@ impl NeuronicApp {
 impl eframe::App for NeuronicApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let now = Instant::now();
-        let dt = now.duration_since(self.last_frame).as_secs_f32();
-        self.last_frame = now;
+        let dt = now.duration_since(self.animation.last_frame).as_secs_f32();
+        self.animation.last_frame = now;
 
-        self.theme.apply_to_egui(ctx);
+        self.preferences.theme.apply_to_egui(ctx);
         self.process_snapshots();
 
         animations::update_animations(
             dt,
-            &mut self.node_activity,
-            &mut self.synapse_particles,
-            &mut self.pulse_rings,
+            &mut self.animation.node_activity,
+            &mut self.animation.synapse_particles,
+            &mut self.animation.pulse_rings,
         );
 
         ctx.request_repaint();
 
         // Handle keyboard shortcuts
         egui::CentralPanel::default().show(ctx, |ui| {
-            match input::handle_keyboard(ui, &mut self.search_focused) {
+            match input::handle_keyboard(ui, &mut self.interaction.search.focused) {
                 KeyboardAction::FocusSearch => {}
                 KeyboardAction::ClearSearch => {
-                    self.search_query.clear();
-                    self.highlighted_node = None;
-                    self.search_matches.clear();
+                    self.interaction.search.query.clear();
+                    self.interaction.search.highlighted_node = None;
+                    self.interaction.search.matches.clear();
                 }
                 KeyboardAction::None => {}
             }
@@ -358,56 +330,57 @@ impl eframe::App for NeuronicApp {
             .show(ctx, |ui| {
                 let panel_result = panels::draw_details_panel(
                     ui,
-                    &self.flow_graph,
-                    &self.selected_node,
-                    &self.selected_edge,
-                    &self.node_activity,
-                    &self.theme,
+                    &self.connection.flow_graph,
+                    &self.interaction.selected_node,
+                    &self.interaction.selected_edge,
+                    &self.animation.node_activity,
+                    &self.preferences.theme,
                 );
                 if panel_result.clicked_edge.is_some() {
                     panel_clicked_edge = panel_result.clicked_edge;
                 }
 
-                if self.show_legend {
+                if self.preferences.show_legend {
                     ui.add_space(16.0);
-                    panels::draw_legend(ui, &self.theme);
+                    panels::draw_legend(ui, &self.preferences.theme);
                 }
 
                 // Show group legend if groups exist
-                if !self.node_groups.is_empty() {
+                if !self.filters.node_groups.is_empty() {
                     ui.add_space(16.0);
-                    panels::draw_group_legend(ui, &self.node_groups);
+                    panels::draw_group_legend(ui, &self.filters.node_groups);
                 }
             });
 
         // Handle edge selection from panel topic clicks
         if let Some(edge) = panel_clicked_edge {
-            self.selected_edge = Some(edge);
+            self.interaction.selected_edge = Some(edge);
         }
 
         // Left panel for filters/groups if open
-        if self.show_filter_panel || self.show_group_panel {
+        if self.preferences.show_filter_panel || self.preferences.show_group_panel {
             egui::SidePanel::left("left_panel")
                 .min_width(180.0)
                 .show(ctx, |ui| {
-                    if self.show_filter_panel {
+                    if self.preferences.show_filter_panel {
                         if panels::draw_filter_panel(
                             ui,
-                            &mut self.topic_filters,
-                            &mut self.new_filter,
+                            &mut self.filters.topic_filters,
+                            &mut self.filters.new_filter,
                         ) {
                             // Filters changed - update graph's ignored topics
-                            self.flow_graph.ignored_topic_prefixes = self.topic_filters.clone();
+                            self.connection.flow_graph.ignored_topic_prefixes =
+                                self.filters.topic_filters.clone();
                         }
                         ui.add_space(16.0);
                     }
 
-                    if self.show_group_panel {
+                    if self.preferences.show_group_panel {
                         panels::draw_group_panel(
                             ui,
-                            &mut self.node_groups,
-                            &mut self.new_group_pattern,
-                            &self.flow_graph,
+                            &mut self.filters.node_groups,
+                            &mut self.filters.new_group_pattern,
+                            &self.connection.flow_graph,
                         );
                     }
                 });
@@ -421,73 +394,73 @@ impl eframe::App for NeuronicApp {
             let input_result = input::handle_input(
                 ui,
                 rect,
-                &self.flow_graph,
-                &mut self.node_positions,
-                &mut self.node_velocities,
-                &mut self.zoom,
-                &mut self.pan,
-                &mut self.dragged_node,
+                &self.connection.flow_graph,
+                &mut self.view.node_positions,
+                &mut self.view.node_velocities,
+                &mut self.view.zoom,
+                &mut self.view.pan,
+                &mut self.interaction.dragged_node,
             );
 
             if let Some(clicked) = input_result.clicked_node {
-                self.selected_node = Some(clicked);
-                self.selected_edge = None; // Clear edge selection when node selected
+                self.interaction.selected_node = Some(clicked);
+                self.interaction.selected_edge = None; // Clear edge selection when node selected
             }
 
             // Apply layout
             layout::apply_layout(
-                self.layout_mode,
-                &self.flow_graph,
-                &mut self.node_positions,
-                &mut self.node_velocities,
+                self.view.layout_mode,
+                &self.connection.flow_graph,
+                &mut self.view.node_positions,
+                &mut self.view.node_velocities,
                 rect,
-                &self.node_groups,
+                &self.filters.node_groups,
             );
 
             // Focus on highlighted node
-            if let Some(ref node_name) = self.highlighted_node {
-                if self.search_focused {
+            if let Some(ref node_name) = self.interaction.search.highlighted_node {
+                if self.interaction.search.focused {
                     search::focus_on_node(
                         node_name,
-                        &self.node_positions,
+                        &self.view.node_positions,
                         rect,
-                        &mut self.pan,
-                        &mut self.zoom,
+                        &mut self.view.pan,
+                        &mut self.view.zoom,
                     );
                 }
             }
 
             // Draw the graph
             let draw_ctx = DrawContext {
-                graph: &self.flow_graph,
-                positions: &self.node_positions,
-                activity: &self.node_activity,
-                particles: &self.synapse_particles,
-                pulse_rings: &self.pulse_rings,
-                node_groups: &self.node_groups,
-                selected_node: self.selected_node.as_ref(),
-                selected_edge: self.selected_edge.as_ref(),
-                highlighted_node: self.highlighted_node.as_ref(),
-                theme: &self.theme,
-                zoom: self.zoom,
-                pan: self.pan,
-                show_labels: self.show_labels,
-                show_gradient_edges: self.show_gradient_edges,
-                show_pulse_rings: self.show_pulse_rings,
+                graph: &self.connection.flow_graph,
+                positions: &self.view.node_positions,
+                activity: &self.animation.node_activity,
+                particles: &self.animation.synapse_particles,
+                pulse_rings: &self.animation.pulse_rings,
+                node_groups: &self.filters.node_groups,
+                selected_node: self.interaction.selected_node.as_ref(),
+                selected_edge: self.interaction.selected_edge.as_ref(),
+                highlighted_node: self.interaction.search.highlighted_node.as_ref(),
+                theme: &self.preferences.theme,
+                zoom: self.view.zoom,
+                pan: self.view.pan,
+                show_labels: self.preferences.show_labels,
+                show_gradient_edges: self.preferences.show_gradient_edges,
+                show_pulse_rings: self.preferences.show_pulse_rings,
             };
 
             draw_ctx.draw_graph(ui, rect);
 
             // Draw minimap
-            if self.show_minimap {
+            if self.preferences.show_minimap {
                 drawing::draw_minimap(
                     ui,
-                    &self.flow_graph,
-                    &self.node_positions,
+                    &self.connection.flow_graph,
+                    &self.view.node_positions,
                     rect,
-                    self.zoom,
-                    self.pan,
-                    &self.theme,
+                    self.view.zoom,
+                    self.view.pan,
+                    &self.preferences.theme,
                 );
             }
         });
