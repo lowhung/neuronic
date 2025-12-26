@@ -48,10 +48,8 @@ pub struct PulseRing {
 #[derive(Clone)]
 pub struct NodeGroup {
     pub name: String,
-    pub pattern: String,
     pub nodes: Vec<String>,
     pub collapsed: bool,
-    pub color: Color32,
 }
 
 /// Predefined color palette for node groups.

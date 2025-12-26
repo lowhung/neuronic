@@ -426,13 +426,10 @@ pub fn draw_group_panel(
                 .collect();
 
             if !nodes.is_empty() {
-                let color = get_group_color(groups.len());
                 groups.push(NodeGroup {
                     name: format!("*{}", pattern),
-                    pattern: pattern.clone(),
                     nodes,
                     collapsed: false,
-                    color,
                 });
             }
             new_pattern.clear();
