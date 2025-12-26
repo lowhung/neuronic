@@ -93,6 +93,17 @@ impl Default for HealthConfig {
     }
 }
 
+impl From<crate::config::GraphConfig> for HealthConfig {
+    fn from(config: crate::config::GraphConfig) -> Self {
+        Self {
+            backlog_warning: config.backlog_warning,
+            backlog_critical: config.backlog_critical,
+            pending_warning_us: config.pending_warning_ms * 1000,
+            pending_critical_us: config.pending_critical_ms * 1000,
+        }
+    }
+}
+
 /// The message flow graph.
 pub struct MessageFlowGraph {
     /// The underlying petgraph.

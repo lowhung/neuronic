@@ -1,7 +1,7 @@
 //! Main application window.
 
 use crate::config::NeuronicConfig;
-use crate::graph::{HealthConfig, MessageFlowGraph, ModuleNode, TopicEdge};
+use crate::graph::{MessageFlowGraph, ModuleNode, TopicEdge};
 use crate::subscriber;
 use buswatch_types::Snapshot;
 use egui::{Pos2, Vec2};
@@ -88,26 +88,20 @@ impl NeuronicApp {
         let theme = Theme::Dark;
         theme.apply_to_egui(&cc.egui_ctx);
 
-        let health_config = HealthConfig {
-            backlog_warning: neuronic_config.graph.backlog_warning,
-            backlog_critical: neuronic_config.graph.backlog_critical,
-            pending_warning_us: neuronic_config.graph.pending_warning_ms * 1000,
-            pending_critical_us: neuronic_config.graph.pending_critical_ms * 1000,
-        };
         let flow_graph = MessageFlowGraph::new_with_config(
-            health_config,
+            neuronic_config.graph.clone().into(),
             neuronic_config.filter.ignored_topics.clone(),
         );
 
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         let (sync_tx, sync_rx) = std_mpsc::channel();
 
-        let config_path_clone = config_path.clone();
+        let subscriber_config = neuronic_config.subscriber.clone();
         let topic_clone = topic.clone();
         let (connected, connection_error) = {
             let sync_tx = sync_tx.clone();
             match runtime.block_on(async {
-                subscriber::create_subscriber(&config_path_clone, &topic_clone).await
+                subscriber::create_subscriber(&subscriber_config, &topic_clone).await
             }) {
                 Ok((mut async_rx, _handle)) => {
                     runtime.spawn(async move {

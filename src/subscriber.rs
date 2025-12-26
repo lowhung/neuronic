@@ -1,49 +1,38 @@
 //! RabbitMQ subscription for receiving monitor snapshots.
-//!
-//! Adapted from buswatch-tui's subscribe module.
 
 use anyhow::{Context, Result};
 use buswatch_types::Snapshot;
-use config::{Config, Environment, File};
 use futures_util::StreamExt;
 use lapin::{
     options::{BasicConsumeOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
     Connection, ConnectionProperties,
 };
-use std::path::Path;
 use tokio::sync::mpsc;
+
+use crate::config::SubscriberConfig;
 
 /// Create a subscriber that connects to RabbitMQ and streams snapshots.
 ///
 /// # Arguments
 ///
-/// * `config_path` - Path to config file with RabbitMQ settings
+/// * `config` - Subscriber configuration with connection settings
 /// * `topic` - The topic pattern to subscribe to
 ///
 /// # Returns
 ///
 /// A receiver channel that yields snapshots as they arrive.
 pub async fn create_subscriber(
-    config_path: &Path,
+    config: &SubscriberConfig,
     topic: &str,
 ) -> Result<(
     mpsc::UnboundedReceiver<Snapshot>,
     tokio::task::JoinHandle<()>,
 )> {
-    // Load config
-    let config = Config::builder()
-        .add_source(File::from(config_path).required(false))
-        .add_source(Environment::with_prefix("CARYATID"))
-        .build()?;
-
-    // Extract RabbitMQ config
-    let (url, exchange) = extract_rabbitmq_config(&config)?;
-
-    tracing::info!("Connecting to RabbitMQ at {}", url);
+    tracing::info!("Connecting to RabbitMQ at {}", config.url);
 
     // Connect to RabbitMQ
-    let conn = Connection::connect(&url, ConnectionProperties::default())
+    let conn = Connection::connect(&config.url, ConnectionProperties::default())
         .await
         .context("Failed to connect to RabbitMQ")?;
 
@@ -66,7 +55,10 @@ pub async fn create_subscriber(
         tracing::info!("Using existing queue: {}", topic);
         topic.to_string()
     } else {
-        tracing::info!("Creating temporary queue bound to exchange: {}", exchange);
+        tracing::info!(
+            "Creating temporary queue bound to exchange: {}",
+            config.exchange
+        );
         let queue = channel
             .queue_declare(
                 "",
@@ -82,7 +74,7 @@ pub async fn create_subscriber(
         channel
             .queue_bind(
                 queue.name().as_str(),
-                &exchange,
+                &config.exchange,
                 topic,
                 QueueBindOptions::default(),
                 FieldTable::default(),
@@ -134,47 +126,4 @@ pub async fn create_subscriber(
     });
 
     Ok((rx, handle))
-}
-
-/// Extract RabbitMQ URL and exchange from config.
-fn extract_rabbitmq_config(config: &Config) -> Result<(String, String)> {
-    // Try [rabbitmq] format first
-    if let Ok(rabbitmq) = config.get_table("rabbitmq") {
-        let url = rabbitmq
-            .get("url")
-            .and_then(|v| v.clone().into_string().ok())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'url' in [rabbitmq]"))?;
-        let exchange = rabbitmq
-            .get("exchange")
-            .and_then(|v| v.clone().into_string().ok())
-            .unwrap_or_else(|| "caryatid".to_string());
-        return Ok((url, exchange));
-    }
-
-    // Try [message-bus.*] format (caryatid style)
-    if let Ok(message_bus) = config.get_table("message-bus") {
-        for (_id, bus_conf) in message_bus {
-            if let Ok(tbl) = bus_conf.into_table() {
-                let class = tbl.get("class").and_then(|v| v.clone().into_string().ok());
-                if class.as_deref() == Some("rabbit-mq") {
-                    let url = tbl
-                        .get("url")
-                        .and_then(|v| v.clone().into_string().ok())
-                        .ok_or_else(|| anyhow::anyhow!("Missing 'url' in rabbit-mq bus config"))?;
-                    let exchange = tbl
-                        .get("exchange")
-                        .and_then(|v| v.clone().into_string().ok())
-                        .unwrap_or_else(|| "caryatid".to_string());
-                    return Ok((url, exchange));
-                }
-            }
-        }
-    }
-
-    // Default fallback for development
-    tracing::warn!("No RabbitMQ config found, using default localhost");
-    Ok((
-        "amqp://127.0.0.1:5672/%2f".to_string(),
-        "caryatid".to_string(),
-    ))
 }

@@ -18,6 +18,10 @@ pub const DEFAULT_CONFIG_FILE: &str = "config.default.toml";
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct NeuronicConfig {
+    /// Subscriber connection settings.
+    #[serde(default)]
+    pub subscriber: SubscriberConfig,
+
     /// Filter settings.
     #[serde(default)]
     pub filter: FilterConfig,
@@ -25,6 +29,35 @@ pub struct NeuronicConfig {
     /// Graph layout settings.
     #[serde(default)]
     pub graph: GraphConfig,
+}
+
+/// Subscriber connection configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubscriberConfig {
+    /// Connection URL.
+    #[serde(default = "default_subscriber_url")]
+    pub url: String,
+
+    /// Exchange name.
+    #[serde(default = "default_subscriber_exchange")]
+    pub exchange: String,
+}
+
+impl Default for SubscriberConfig {
+    fn default() -> Self {
+        Self {
+            url: default_subscriber_url(),
+            exchange: default_subscriber_exchange(),
+        }
+    }
+}
+
+fn default_subscriber_url() -> String {
+    "amqp://127.0.0.1:5672/%2f".to_string()
+}
+
+fn default_subscriber_exchange() -> String {
+    "caryatid".to_string()
 }
 
 /// Filter configuration.
