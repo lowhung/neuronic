@@ -9,21 +9,29 @@
 
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
+use petgraph::graph::EdgeIndex;
 
 use super::theme::Theme;
 use super::types::{NodeActivity, NodeGroup};
 
-/// Draw the details panel showing information about the selected node.
+/// Draw the details panel showing information about the selected node or edge.
 ///
 /// Displays health status, message counts, rates, and topic connections
-/// for the currently selected module.
+/// for the currently selected module or edge.
 pub fn draw_details_panel(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
     selected_node: &Option<String>,
+    selected_edge: &Option<EdgeIndex>,
     node_activity: &std::collections::HashMap<String, NodeActivity>,
     theme: &Theme,
 ) {
+    // Show edge details if an edge is selected
+    if let Some(edge_idx) = selected_edge {
+        draw_edge_details(ui, graph, *edge_idx, theme);
+        return;
+    }
+
     if let Some(name) = selected_node {
         if let Some(node) = graph.graph.node_weights().find(|n| &n.name == name) {
             ui.heading(&node.name);
@@ -63,7 +71,92 @@ pub fn draw_details_panel(
             }
         }
     } else {
-        ui.label("Click a neuron to see details");
+        ui.label("Click a neuron or synapse to see details");
+    }
+}
+
+/// Draw edge details panel.
+fn draw_edge_details(
+    ui: &mut egui::Ui,
+    graph: &MessageFlowGraph,
+    edge_idx: EdgeIndex,
+    theme: &Theme,
+) {
+    if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+        ui.heading("Synapse Details");
+        ui.separator();
+
+        ui.label(format!("Topic: {}", edge.topic));
+        ui.add_space(4.0);
+
+        // Source and target
+        if let Some((source, target)) = graph.graph.edge_endpoints(edge_idx) {
+            let source_name = &graph.graph[source].name;
+            let target_name = &graph.graph[target].name;
+            ui.label(format!("From: {}", source_name));
+            ui.label(format!("To: {}", target_name));
+        }
+
+        ui.separator();
+        ui.label("Metrics:");
+
+        // Format message count nicely (1.2k for 1200)
+        let msg_count = format_count(edge.message_count);
+        ui.label(format!("Messages: {}", msg_count));
+
+        // Rate
+        if let Some(rate) = edge.rate {
+            ui.label(format!("Rate: {:.1} msg/s", rate));
+        }
+
+        // Backlog
+        if let Some(backlog) = edge.backlog {
+            let backlog_str = format_count(backlog);
+            ui.label(format!("Backlog: {}", backlog_str));
+        }
+
+        // Pending time (format as ms/s)
+        if let Some(pending_us) = edge.pending_us {
+            let pending_str = format_duration_us(pending_us);
+            ui.label(format!("Pending: {}", pending_str));
+        }
+
+        ui.separator();
+
+        // Health status
+        ui.horizontal(|ui| {
+            ui.label("Health:");
+            let (health_text, health_color) = match edge.health {
+                HealthStatus::Healthy => ("Healthy", theme.neuron_active()),
+                HealthStatus::Warning => ("Warning", theme.neuron_warning()),
+                HealthStatus::Critical => ("Critical", theme.neuron_critical()),
+            };
+            ui.label(egui::RichText::new(health_text).color(health_color));
+        });
+    } else {
+        ui.label("Edge not found");
+    }
+}
+
+/// Format a count nicely (e.g., 1200 -> "1.2k", 1500000 -> "1.5M").
+fn format_count(count: u64) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}k", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
+/// Format duration in microseconds to a human-readable string.
+fn format_duration_us(us: u64) -> String {
+    if us >= 1_000_000 {
+        format!("{:.1}s", us as f64 / 1_000_000.0)
+    } else if us >= 1_000 {
+        format!("{:.1}ms", us as f64 / 1_000.0)
+    } else {
+        format!("{}µs", us)
     }
 }
 

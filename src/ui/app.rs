@@ -6,6 +6,7 @@ use crate::subscriber;
 use buswatch_types::Snapshot;
 use egui::{Pos2, Vec2};
 use egui_graphs::Graph;
+use petgraph::graph::EdgeIndex;
 use petgraph::stable_graph::StableGraph;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -42,6 +43,7 @@ pub struct NeuronicApp {
 
     // Selection and interaction
     selected_node: Option<String>,
+    selected_edge: Option<EdgeIndex>,
     dragged_node: Option<String>,
     search_query: String,
     search_focused: bool,
@@ -133,6 +135,7 @@ impl NeuronicApp {
             zoom: 1.0,
             pan: Vec2::ZERO,
             selected_node: None,
+            selected_edge: None,
             dragged_node: None,
             search_query: String::new(),
             search_focused: false,
@@ -357,6 +360,7 @@ impl eframe::App for NeuronicApp {
                     ui,
                     &self.flow_graph,
                     &self.selected_node,
+                    &self.selected_edge,
                     &self.node_activity,
                     &self.theme,
                 );
@@ -413,6 +417,11 @@ impl eframe::App for NeuronicApp {
 
             if let Some(clicked) = input_result.clicked_node {
                 self.selected_node = Some(clicked);
+                self.selected_edge = None; // Clear edge selection when node selected
+            }
+            if let Some(clicked_edge) = input_result.clicked_edge {
+                self.selected_edge = Some(clicked_edge);
+                self.selected_node = None; // Clear node selection when edge selected
             }
 
             // Apply layout

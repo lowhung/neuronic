@@ -11,11 +11,13 @@
 
 use crate::graph::MessageFlowGraph;
 use egui::{Pos2, Rect, Vec2};
+use petgraph::graph::EdgeIndex;
 use std::collections::HashMap;
 
 /// Result of processing user input for a frame.
 pub struct InputResult {
     pub clicked_node: Option<String>,
+    pub clicked_edge: Option<EdgeIndex>,
     pub started_dragging: Option<String>,
     pub stopped_dragging: bool,
 }
@@ -38,6 +40,7 @@ pub fn handle_input(
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
     let mut result = InputResult {
         clicked_node: None,
+        clicked_edge: None,
         started_dragging: None,
         stopped_dragging: false,
     };
@@ -90,14 +93,75 @@ pub fn handle_input(
         result.stopped_dragging = true;
     }
 
-    // Handle click for node selection
+    // Handle click for node/edge selection
     if response.clicked() {
         if let Some(pos) = response.interact_pointer_pos() {
             result.clicked_node = find_node_at_position(graph, positions, pos, rect, *zoom, *pan);
+            // Only check for edge clicks if no node was clicked
+            if result.clicked_node.is_none() {
+                result.clicked_edge =
+                    find_edge_at_position(graph, positions, pos, rect, *zoom, *pan);
+            }
         }
     }
 
     result
+}
+
+/// Find an edge at the given screen position.
+fn find_edge_at_position(
+    graph: &MessageFlowGraph,
+    positions: &HashMap<String, Pos2>,
+    screen_pos: Pos2,
+    rect: Rect,
+    zoom: f32,
+    pan: Vec2,
+) -> Option<EdgeIndex> {
+    let center = rect.center();
+    let click_threshold = 10.0; // Distance in screen pixels to consider a click on edge
+
+    for edge_idx in graph.graph.edge_indices() {
+        if let Some((source_idx, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+            let source_node = &graph.graph[source_idx];
+            let target_node = &graph.graph[target_idx];
+
+            let world_s = positions.get(&source_node.name)?;
+            let world_t = positions.get(&target_node.name)?;
+
+            // Convert to screen coordinates
+            let offset_s = (*world_s - center) * zoom;
+            let offset_t = (*world_t - center) * zoom;
+            let pos_s = center + offset_s + pan;
+            let pos_t = center + offset_t + pan;
+
+            // Calculate bezier control point (same curve as in drawing.rs)
+            let mid = pos_s + (pos_t - pos_s) * 0.5;
+            let dir = (pos_t - pos_s).normalized();
+            let perp = Vec2::new(-dir.y, dir.x);
+            let distance = (pos_t - pos_s).length();
+            let curve_amount = (distance * 0.15).min(40.0 * zoom);
+            let control = mid + perp * curve_amount;
+
+            // Check distance to bezier curve at multiple sample points
+            for i in 0..=20 {
+                let t = i as f32 / 20.0;
+                let point = quadratic_bezier(pos_s, control, pos_t, t);
+                if (point - screen_pos).length() < click_threshold {
+                    return Some(edge_idx);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Quadratic bezier interpolation for edge hit testing.
+fn quadratic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, t: f32) -> Pos2 {
+    let u = 1.0 - t;
+    Pos2::new(
+        u * u * p0.x + 2.0 * u * t * p1.x + t * t * p2.x,
+        u * u * p0.y + 2.0 * u * t * p1.y + t * t * p2.y,
+    )
 }
 
 /// Find a node at the given screen position.

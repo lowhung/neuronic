@@ -59,15 +59,12 @@ pub struct TopicEdge {
     /// Topic name.
     pub topic: String,
     /// Message count on this topic.
-    #[allow(dead_code)]
     pub message_count: u64,
     /// Message rate if available.
     pub rate: Option<f64>,
     /// Backlog (unread messages) if available.
-    #[allow(dead_code)]
     pub backlog: Option<u64>,
     /// Pending time in microseconds if available.
-    #[allow(dead_code)]
     pub pending_us: Option<u64>,
     /// Health status of this connection.
     pub health: HealthStatus,
