@@ -442,11 +442,11 @@ pub fn draw_group_panel(
     ui.add_space(4.0);
     ui.label("Common patterns:");
     ui.horizontal(|ui| {
-        if ui.button("_state").clicked() {
-            *new_pattern = "_state".to_string();
+        if ui.button("-state").clicked() {
+            *new_pattern = "-state".to_string();
         }
-        if ui.button("_validator").clicked() {
-            *new_pattern = "_validator".to_string();
+        if ui.button("-validator").clicked() {
+            *new_pattern = "-validator".to_string();
         }
     });
 }
