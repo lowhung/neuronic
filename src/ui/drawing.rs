@@ -181,7 +181,7 @@ impl<'a> DrawContext<'a> {
                 let edge = &self.graph.graph[edge_idx];
 
                 // Check if this edge is selected
-                let is_selected = self.selected_edge.map_or(false, |sel| {
+                let is_selected = self.selected_edge.is_some_and(|sel| {
                     sel.source_node == source_node.name
                         && sel.target_node == target_node.name
                         && sel.topic == edge.topic
@@ -341,9 +341,9 @@ impl<'a> DrawContext<'a> {
             let color = get_neuron_color(node, activity, self.theme);
             let is_selected = self.selected_node == Some(&node.name);
             let is_highlighted = self.highlighted_node == Some(&node.name);
-            let is_edge_endpoint = self.selected_edge.map_or(false, |sel| {
-                sel.source_node == node.name || sel.target_node == node.name
-            });
+            let is_edge_endpoint = self
+                .selected_edge
+                .is_some_and(|sel| sel.source_node == node.name || sel.target_node == node.name);
 
             let fire_intensity = activity.map(|a| a.fire_intensity).unwrap_or(0.0);
 
