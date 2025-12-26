@@ -6,6 +6,10 @@
 use buswatch_types::Snapshot;
 use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
+use std::time::Instant;
+
+/// Key for identifying an edge (source module, target module, topic).
+type EdgeKey = (String, String, String);
 
 /// Health status of a module or topic connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +117,10 @@ pub struct MessageFlowGraph {
     pub last_update_ms: u64,
     /// Topic patterns to ignore.
     pub ignored_topic_prefixes: Vec<String>,
+    /// Previous edge message counts for rate inference.
+    prev_edge_counts: HashMap<EdgeKey, u64>,
+    /// Timestamp of previous snapshot for rate calculation.
+    prev_snapshot_time: Option<Instant>,
 }
 
 impl MessageFlowGraph {
@@ -126,6 +134,8 @@ impl MessageFlowGraph {
             ignored_topic_prefixes: vec![
                 "cardano.query.".to_string(), // Ignore query topics - too noisy
             ],
+            prev_edge_counts: HashMap::new(),
+            prev_snapshot_time: None,
         }
     }
 
@@ -140,6 +150,8 @@ impl MessageFlowGraph {
             health_config,
             last_update_ms: 0,
             ignored_topic_prefixes,
+            prev_edge_counts: HashMap::new(),
+            prev_snapshot_time: None,
         }
     }
 
@@ -159,6 +171,10 @@ impl MessageFlowGraph {
     /// Update the graph from a snapshot.
     pub fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
         self.last_update_ms = snapshot.timestamp_ms;
+        let now = Instant::now();
+        let elapsed_secs = self
+            .prev_snapshot_time
+            .map(|t| now.duration_since(t).as_secs_f64());
 
         // First pass: create/update all module nodes
         for (module_name, metrics) in snapshot.iter() {
@@ -253,15 +269,48 @@ impl MessageFlowGraph {
         }
 
         // Create edges from producers to consumers
+        let mut new_edge_counts: HashMap<EdgeKey, u64> = HashMap::new();
+
         for (topic, producers) in &topic_producers {
             if let Some(consumers) = topic_consumers.get(topic) {
                 for &(producer_idx, write_count, write_rate) in producers {
                     for &(consumer_idx, read_count, backlog, pending_us, read_rate) in consumers {
                         let health = self.compute_edge_health(backlog, pending_us);
+                        let message_count = write_count.max(read_count);
+
+                        // Use provided rate, or infer from count delta
+                        let rate = write_rate.or(read_rate).or_else(|| {
+                            let source_name = &self.graph[producer_idx].name;
+                            let target_name = &self.graph[consumer_idx].name;
+                            let key = (source_name.clone(), target_name.clone(), topic.clone());
+
+                            // Store current count for next iteration
+                            new_edge_counts.insert(key.clone(), message_count);
+
+                            // Calculate rate from previous count if available
+                            if let (Some(prev_count), Some(elapsed)) =
+                                (self.prev_edge_counts.get(&key), elapsed_secs)
+                            {
+                                if elapsed > 0.0 && message_count >= *prev_count {
+                                    let delta = message_count - prev_count;
+                                    return Some(delta as f64 / elapsed);
+                                }
+                            }
+                            None
+                        });
+
+                        // Also store count when rate was provided (for consistency)
+                        if write_rate.is_some() || read_rate.is_some() {
+                            let source_name = &self.graph[producer_idx].name;
+                            let target_name = &self.graph[consumer_idx].name;
+                            let key = (source_name.clone(), target_name.clone(), topic.clone());
+                            new_edge_counts.insert(key, message_count);
+                        }
+
                         let edge = TopicEdge {
                             topic: topic.clone(),
-                            message_count: write_count.max(read_count),
-                            rate: write_rate.or(read_rate),
+                            message_count,
+                            rate,
                             backlog,
                             pending_us,
                             health,
@@ -271,6 +320,10 @@ impl MessageFlowGraph {
                 }
             }
         }
+
+        // Update state for next snapshot
+        self.prev_edge_counts = new_edge_counts;
+        self.prev_snapshot_time = Some(now);
     }
 
     /// Compute health status for a module based on its metrics.

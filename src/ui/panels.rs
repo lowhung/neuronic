@@ -10,6 +10,7 @@
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
 
+use super::drawing::format_rate;
 use super::theme::Theme;
 use super::types::{get_group_color, NodeActivity, NodeGroup, SelectedEdge};
 
@@ -209,7 +210,14 @@ fn draw_edge_details(
 
                 ui.label("Rate:");
                 ui.label(match edge.rate {
-                    Some(rate) => format!("{:.1} msg/s", rate),
+                    Some(rate) => {
+                        let formatted = format_rate(rate);
+                        if formatted.is_empty() {
+                            "0/s".to_string()
+                        } else {
+                            formatted
+                        }
+                    }
                     None => "-".to_string(),
                 });
                 ui.end_row();
