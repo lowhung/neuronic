@@ -6,7 +6,6 @@ use crate::subscriber;
 use buswatch_types::Snapshot;
 use egui::{Pos2, Vec2};
 use egui_graphs::Graph;
-use petgraph::graph::EdgeIndex;
 use petgraph::stable_graph::StableGraph;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,7 +42,7 @@ pub struct NeuronicApp {
 
     // Selection and interaction
     selected_node: Option<String>,
-    selected_edge: Option<EdgeIndex>,
+    selected_edge: Option<SelectedEdge>,
     dragged_node: Option<String>,
     search_query: String,
     search_focused: bool,
@@ -376,8 +375,8 @@ impl eframe::App for NeuronicApp {
             });
 
         // Handle edge selection from panel topic clicks
-        if let Some(edge_idx) = panel_clicked_edge {
-            self.selected_edge = Some(edge_idx);
+        if let Some(edge) = panel_clicked_edge {
+            self.selected_edge = Some(edge);
         }
 
         // Left panel for filters/groups if open

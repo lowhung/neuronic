@@ -54,3 +54,11 @@ pub struct NodeGroup {
     pub collapsed: bool,
     pub color: Color32,
 }
+
+/// Stable identifier for a selected edge (survives graph rebuilds).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectedEdge {
+    pub source_node: String,
+    pub target_node: String,
+    pub topic: String,
+}

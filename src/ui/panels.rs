@@ -9,14 +9,13 @@
 
 use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
-use petgraph::graph::EdgeIndex;
 
 use super::theme::Theme;
-use super::types::{NodeActivity, NodeGroup};
+use super::types::{NodeActivity, NodeGroup, SelectedEdge};
 
 /// Result from the details panel indicating which edge (if any) was clicked.
 pub struct DetailsPanelResult {
-    pub clicked_edge: Option<EdgeIndex>,
+    pub clicked_edge: Option<SelectedEdge>,
 }
 
 /// Draw the details panel showing information about the selected node or edge.
@@ -30,15 +29,15 @@ pub fn draw_details_panel(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
     selected_node: &Option<String>,
-    selected_edge: &Option<EdgeIndex>,
+    selected_edge: &Option<SelectedEdge>,
     node_activity: &std::collections::HashMap<String, NodeActivity>,
     theme: &Theme,
 ) -> DetailsPanelResult {
     let mut result = DetailsPanelResult { clicked_edge: None };
 
     // Show edge details if an edge is selected
-    if let Some(edge_idx) = selected_edge {
-        draw_edge_details(ui, graph, *edge_idx, theme);
+    if let Some(edge) = selected_edge {
+        draw_edge_details(ui, graph, edge, theme);
         return result;
     }
 
@@ -71,11 +70,14 @@ pub fn draw_details_panel(
             ui.separator();
             ui.label("Inputs:");
             for topic in &node.read_topics {
-                // Find the edge for this input topic (where this node is the target)
-                let edge_idx = find_edge_by_topic_to_node(graph, topic, name);
-                if edge_idx.is_some() {
+                // Find the source node for this input topic
+                if let Some(source_name) = find_source_node_for_topic(graph, topic, name) {
                     if ui.link(format!("  <- {}", topic)).clicked() {
-                        result.clicked_edge = edge_idx;
+                        result.clicked_edge = Some(SelectedEdge {
+                            source_node: source_name,
+                            target_node: name.clone(),
+                            topic: topic.clone(),
+                        });
                     }
                 } else {
                     ui.label(format!("  <- {}", topic));
@@ -85,11 +87,14 @@ pub fn draw_details_panel(
             ui.separator();
             ui.label("Outputs:");
             for topic in &node.write_topics {
-                // Find the edge for this output topic (where this node is the source)
-                let edge_idx = find_edge_by_topic_from_node(graph, topic, name);
-                if edge_idx.is_some() {
+                // Find the target node for this output topic
+                if let Some(target_name) = find_target_node_for_topic(graph, topic, name) {
                     if ui.link(format!("  -> {}", topic)).clicked() {
-                        result.clicked_edge = edge_idx;
+                        result.clicked_edge = Some(SelectedEdge {
+                            source_node: name.clone(),
+                            target_node: target_name,
+                            topic: topic.clone(),
+                        });
                     }
                 } else {
                     ui.label(format!("  -> {}", topic));
@@ -104,18 +109,18 @@ pub fn draw_details_panel(
     result
 }
 
-/// Find an edge by topic name where the given node is the target (input).
-fn find_edge_by_topic_to_node(
+/// Find the source node name for a topic where the given node is the target (input).
+fn find_source_node_for_topic(
     graph: &MessageFlowGraph,
     topic: &str,
-    node_name: &str,
-) -> Option<EdgeIndex> {
+    target_node_name: &str,
+) -> Option<String> {
     for edge_idx in graph.graph.edge_indices() {
         if let Some(edge) = graph.graph.edge_weight(edge_idx) {
             if edge.topic == topic {
-                if let Some((_, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
-                    if graph.graph[target_idx].name == node_name {
-                        return Some(edge_idx);
+                if let Some((source_idx, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[target_idx].name == target_node_name {
+                        return Some(graph.graph[source_idx].name.clone());
                     }
                 }
             }
@@ -124,18 +129,18 @@ fn find_edge_by_topic_to_node(
     None
 }
 
-/// Find an edge by topic name where the given node is the source (output).
-fn find_edge_by_topic_from_node(
+/// Find the target node name for a topic where the given node is the source (output).
+fn find_target_node_for_topic(
     graph: &MessageFlowGraph,
     topic: &str,
-    node_name: &str,
-) -> Option<EdgeIndex> {
+    source_node_name: &str,
+) -> Option<String> {
     for edge_idx in graph.graph.edge_indices() {
         if let Some(edge) = graph.graph.edge_weight(edge_idx) {
             if edge.topic == topic {
-                if let Some((source_idx, _)) = graph.graph.edge_endpoints(edge_idx) {
-                    if graph.graph[source_idx].name == node_name {
-                        return Some(edge_idx);
+                if let Some((source_idx, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[source_idx].name == source_node_name {
+                        return Some(graph.graph[target_idx].name.clone());
                     }
                 }
             }
@@ -148,10 +153,26 @@ fn find_edge_by_topic_from_node(
 fn draw_edge_details(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
-    edge_idx: EdgeIndex,
+    selected: &SelectedEdge,
     theme: &Theme,
 ) {
-    if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+    // Look up the edge by its stable identifier (source, target, topic)
+    let edge_data = graph.graph.edge_indices().find_map(|edge_idx| {
+        let edge = graph.graph.edge_weight(edge_idx)?;
+        if edge.topic != selected.topic {
+            return None;
+        }
+        let (source_idx, target_idx) = graph.graph.edge_endpoints(edge_idx)?;
+        if graph.graph[source_idx].name == selected.source_node
+            && graph.graph[target_idx].name == selected.target_node
+        {
+            Some(edge.clone())
+        } else {
+            None
+        }
+    });
+
+    if let Some(edge) = edge_data {
         ui.heading("Synapse Details");
         ui.separator();
 
@@ -164,19 +185,13 @@ fn draw_edge_details(
                 ui.label(&edge.topic);
                 ui.end_row();
 
-                // Source and target
-                if let Some((source, target)) = graph.graph.edge_endpoints(edge_idx) {
-                    let source_name = &graph.graph[source].name;
-                    let target_name = &graph.graph[target].name;
+                ui.label("From:");
+                ui.label(&selected.source_node);
+                ui.end_row();
 
-                    ui.label("From:");
-                    ui.label(source_name.as_str());
-                    ui.end_row();
-
-                    ui.label("To:");
-                    ui.label(target_name.as_str());
-                    ui.end_row();
-                }
+                ui.label("To:");
+                ui.label(&selected.target_node);
+                ui.end_row();
             });
 
         ui.separator();
