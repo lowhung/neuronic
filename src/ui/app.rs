@@ -458,6 +458,7 @@ impl eframe::App for NeuronicApp {
                 particles: &self.synapse_particles,
                 pulse_rings: &self.pulse_rings,
                 selected_node: self.selected_node.as_ref(),
+                selected_edge: self.selected_edge.as_ref(),
                 highlighted_node: self.highlighted_node.as_ref(),
                 theme: &self.theme,
                 zoom: self.zoom,
