@@ -11,19 +11,36 @@ use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
 
 use super::theme::Theme;
-use super::types::{get_group_color, NodeActivity, NodeGroup};
+use super::types::{get_group_color, NodeActivity, NodeGroup, SelectedEdge};
 
-/// Draw the details panel showing information about the selected node.
+/// Result from the details panel indicating which edge (if any) was clicked.
+pub struct DetailsPanelResult {
+    pub clicked_edge: Option<SelectedEdge>,
+}
+
+/// Draw the details panel showing information about the selected node or edge.
 ///
 /// Displays health status, message counts, rates, and topic connections
-/// for the currently selected module.
+/// for the currently selected module or edge. Topic names in the Inputs/Outputs
+/// sections are clickable links that show edge details when clicked.
+///
+/// Returns information about user interactions (e.g., clicked topic/edge).
 pub fn draw_details_panel(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
     selected_node: &Option<String>,
+    selected_edge: &Option<SelectedEdge>,
     node_activity: &std::collections::HashMap<String, NodeActivity>,
     theme: &Theme,
-) {
+) -> DetailsPanelResult {
+    let mut result = DetailsPanelResult { clicked_edge: None };
+
+    // Show edge details if an edge is selected
+    if let Some(edge) = selected_edge {
+        draw_edge_details(ui, graph, edge, theme);
+        return result;
+    }
+
     if let Some(name) = selected_node {
         if let Some(node) = graph.graph.node_weights().find(|n| &n.name == name) {
             ui.heading(&node.name);
@@ -53,17 +70,197 @@ pub fn draw_details_panel(
             ui.separator();
             ui.label("Inputs:");
             for topic in &node.read_topics {
-                ui.label(format!("  <- {}", topic));
+                // Find the source node for this input topic
+                if let Some(source_name) = find_source_node_for_topic(graph, topic, name) {
+                    if ui.link(format!("  <- {}", topic)).clicked() {
+                        result.clicked_edge = Some(SelectedEdge {
+                            source_node: source_name,
+                            target_node: name.clone(),
+                            topic: topic.clone(),
+                        });
+                    }
+                } else {
+                    ui.label(format!("  <- {}", topic));
+                }
             }
 
             ui.separator();
             ui.label("Outputs:");
             for topic in &node.write_topics {
-                ui.label(format!("  -> {}", topic));
+                // Find the target node for this output topic
+                if let Some(target_name) = find_target_node_for_topic(graph, topic, name) {
+                    if ui.link(format!("  -> {}", topic)).clicked() {
+                        result.clicked_edge = Some(SelectedEdge {
+                            source_node: name.clone(),
+                            target_node: target_name,
+                            topic: topic.clone(),
+                        });
+                    }
+                } else {
+                    ui.label(format!("  -> {}", topic));
+                }
             }
         }
     } else {
         ui.label("Click a neuron to see details");
+        ui.label("Then click a topic to see synapse metrics");
+    }
+
+    result
+}
+
+/// Find the source node name for a topic where the given node is the target (input).
+fn find_source_node_for_topic(
+    graph: &MessageFlowGraph,
+    topic: &str,
+    target_node_name: &str,
+) -> Option<String> {
+    for edge_idx in graph.graph.edge_indices() {
+        if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+            if edge.topic == topic {
+                if let Some((source_idx, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[target_idx].name == target_node_name {
+                        return Some(graph.graph[source_idx].name.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find the target node name for a topic where the given node is the source (output).
+fn find_target_node_for_topic(
+    graph: &MessageFlowGraph,
+    topic: &str,
+    source_node_name: &str,
+) -> Option<String> {
+    for edge_idx in graph.graph.edge_indices() {
+        if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+            if edge.topic == topic {
+                if let Some((source_idx, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[source_idx].name == source_node_name {
+                        return Some(graph.graph[target_idx].name.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Draw edge details panel using a stable grid layout to prevent jitter.
+fn draw_edge_details(
+    ui: &mut egui::Ui,
+    graph: &MessageFlowGraph,
+    selected: &SelectedEdge,
+    theme: &Theme,
+) {
+    // Look up the edge by its stable identifier (source, target, topic)
+    let edge_data = graph.graph.edge_indices().find_map(|edge_idx| {
+        let edge = graph.graph.edge_weight(edge_idx)?;
+        if edge.topic != selected.topic {
+            return None;
+        }
+        let (source_idx, target_idx) = graph.graph.edge_endpoints(edge_idx)?;
+        if graph.graph[source_idx].name == selected.source_node
+            && graph.graph[target_idx].name == selected.target_node
+        {
+            Some(edge.clone())
+        } else {
+            None
+        }
+    });
+
+    if let Some(edge) = edge_data {
+        ui.heading("Synapse Details");
+        ui.separator();
+
+        // Use Grid for stable layout - labels won't jump around
+        egui::Grid::new("edge_details_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Topic:");
+                ui.label(&edge.topic);
+                ui.end_row();
+
+                ui.label("From:");
+                ui.label(&selected.source_node);
+                ui.end_row();
+
+                ui.label("To:");
+                ui.label(&selected.target_node);
+                ui.end_row();
+            });
+
+        ui.separator();
+        ui.label("Metrics:");
+
+        egui::Grid::new("edge_metrics_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .min_col_width(70.0)
+            .show(ui, |ui| {
+                // Always show all metrics with consistent layout
+                ui.label("Messages:");
+                ui.label(format_count(edge.message_count));
+                ui.end_row();
+
+                ui.label("Rate:");
+                ui.label(match edge.rate {
+                    Some(rate) => format!("{:.1} msg/s", rate),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
+
+                ui.label("Backlog:");
+                ui.label(match edge.backlog {
+                    Some(backlog) => format_count(backlog),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
+
+                ui.label("Pending:");
+                ui.label(match edge.pending_us {
+                    Some(pending_us) => format_duration_us(pending_us),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
+
+                ui.label("Health:");
+                let (health_text, health_color) = match edge.health {
+                    HealthStatus::Healthy => ("Healthy", theme.neuron_active()),
+                    HealthStatus::Warning => ("Warning", theme.neuron_warning()),
+                    HealthStatus::Critical => ("Critical", theme.neuron_critical()),
+                };
+                ui.label(egui::RichText::new(health_text).color(health_color));
+                ui.end_row();
+            });
+    } else {
+        ui.label("Edge not found");
+    }
+}
+
+/// Format a count nicely (e.g., 1200 -> "1.2k", 1500000 -> "1.5M").
+fn format_count(count: u64) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 1_000 {
+        format!("{:.1}k", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
+/// Format duration in microseconds to a human-readable string.
+fn format_duration_us(us: u64) -> String {
+    if us >= 1_000_000 {
+        format!("{:.1}s", us as f64 / 1_000_000.0)
+    } else if us >= 1_000 {
+        format!("{:.1}ms", us as f64 / 1_000.0)
+    } else {
+        format!("{}µs", us)
     }
 }
 

@@ -70,3 +70,11 @@ pub const GROUP_COLORS: [Color32; 8] = [
 pub fn get_group_color(index: usize) -> Color32 {
     GROUP_COLORS[index % GROUP_COLORS.len()]
 }
+
+/// Stable identifier for a selected edge (survives graph rebuilds).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectedEdge {
+    pub source_node: String,
+    pub target_node: String,
+    pub topic: String,
+}

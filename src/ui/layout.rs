@@ -74,8 +74,16 @@ pub fn apply_force_directed(
                 delta.normalized() * (repulsion / (dist * dist))
             };
 
-            *forces.get_mut(&nodes[i].name).unwrap() += repulsion_force;
-            *forces.get_mut(&nodes[j].name).unwrap() -= repulsion_force;
+            if let Some(force) = forces.get_mut(&nodes[i].name) {
+                *force += repulsion_force;
+            } else {
+                tracing::warn!("Layout: missing force vector for node '{}'", nodes[i].name);
+            }
+            if let Some(force) = forces.get_mut(&nodes[j].name) {
+                *force -= repulsion_force;
+            } else {
+                tracing::warn!("Layout: missing force vector for node '{}'", nodes[j].name);
+            }
         }
     }
 
@@ -93,8 +101,22 @@ pub fn apply_force_directed(
 
             if dist > min_distance * 1.5 {
                 let force = delta.normalized() * (dist - min_distance) * attraction;
-                *forces.get_mut(&source_node.name).unwrap() += force;
-                *forces.get_mut(&target_node.name).unwrap() -= force;
+                if let Some(f) = forces.get_mut(&source_node.name) {
+                    *f += force;
+                } else {
+                    tracing::warn!(
+                        "Layout: missing force vector for source node '{}'",
+                        source_node.name
+                    );
+                }
+                if let Some(f) = forces.get_mut(&target_node.name) {
+                    *f -= force;
+                } else {
+                    tracing::warn!(
+                        "Layout: missing force vector for target node '{}'",
+                        target_node.name
+                    );
+                }
             }
         }
     }
@@ -134,7 +156,11 @@ pub fn apply_force_directed(
     for node in graph.graph.node_weights() {
         let pos = positions.get(&node.name).copied().unwrap_or(center);
         let to_center = center - pos;
-        *forces.get_mut(&node.name).unwrap() += to_center * 0.0005;
+        if let Some(force) = forces.get_mut(&node.name) {
+            *force += to_center * 0.0005;
+        } else {
+            tracing::warn!("Layout: missing force vector for node '{}'", node.name);
+        }
     }
 
     // Apply forces with velocity
