@@ -353,10 +353,11 @@ impl eframe::App for NeuronicApp {
         });
 
         // Right panel with details
+        let mut panel_clicked_edge = None;
         egui::SidePanel::right("details")
             .min_width(200.0)
             .show(ctx, |ui| {
-                panels::draw_details_panel(
+                let panel_result = panels::draw_details_panel(
                     ui,
                     &self.flow_graph,
                     &self.selected_node,
@@ -364,12 +365,20 @@ impl eframe::App for NeuronicApp {
                     &self.node_activity,
                     &self.theme,
                 );
+                if panel_result.clicked_edge.is_some() {
+                    panel_clicked_edge = panel_result.clicked_edge;
+                }
 
                 if self.show_legend {
                     ui.add_space(16.0);
                     panels::draw_legend(ui, &self.theme);
                 }
             });
+
+        // Handle edge selection from panel topic clicks
+        if let Some(edge_idx) = panel_clicked_edge {
+            self.selected_edge = Some(edge_idx);
+        }
 
         // Left panel for filters/groups if open
         if self.show_filter_panel || self.show_group_panel {
@@ -418,10 +427,6 @@ impl eframe::App for NeuronicApp {
             if let Some(clicked) = input_result.clicked_node {
                 self.selected_node = Some(clicked);
                 self.selected_edge = None; // Clear edge selection when node selected
-            }
-            if let Some(clicked_edge) = input_result.clicked_edge {
-                self.selected_edge = Some(clicked_edge);
-                self.selected_node = None; // Clear node selection when edge selected
             }
 
             // Apply layout

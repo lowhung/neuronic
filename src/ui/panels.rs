@@ -14,10 +14,18 @@ use petgraph::graph::EdgeIndex;
 use super::theme::Theme;
 use super::types::{NodeActivity, NodeGroup};
 
+/// Result from the details panel indicating which edge (if any) was clicked.
+pub struct DetailsPanelResult {
+    pub clicked_edge: Option<EdgeIndex>,
+}
+
 /// Draw the details panel showing information about the selected node or edge.
 ///
 /// Displays health status, message counts, rates, and topic connections
-/// for the currently selected module or edge.
+/// for the currently selected module or edge. Topic names in the Inputs/Outputs
+/// sections are clickable links that show edge details when clicked.
+///
+/// Returns information about user interactions (e.g., clicked topic/edge).
 pub fn draw_details_panel(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
@@ -25,11 +33,13 @@ pub fn draw_details_panel(
     selected_edge: &Option<EdgeIndex>,
     node_activity: &std::collections::HashMap<String, NodeActivity>,
     theme: &Theme,
-) {
+) -> DetailsPanelResult {
+    let mut result = DetailsPanelResult { clicked_edge: None };
+
     // Show edge details if an edge is selected
     if let Some(edge_idx) = selected_edge {
         draw_edge_details(ui, graph, *edge_idx, theme);
-        return;
+        return result;
     }
 
     if let Some(name) = selected_node {
@@ -61,18 +71,77 @@ pub fn draw_details_panel(
             ui.separator();
             ui.label("Inputs:");
             for topic in &node.read_topics {
-                ui.label(format!("  <- {}", topic));
+                // Find the edge for this input topic (where this node is the target)
+                let edge_idx = find_edge_by_topic_to_node(graph, topic, name);
+                if edge_idx.is_some() {
+                    if ui.link(format!("  <- {}", topic)).clicked() {
+                        result.clicked_edge = edge_idx;
+                    }
+                } else {
+                    ui.label(format!("  <- {}", topic));
+                }
             }
 
             ui.separator();
             ui.label("Outputs:");
             for topic in &node.write_topics {
-                ui.label(format!("  -> {}", topic));
+                // Find the edge for this output topic (where this node is the source)
+                let edge_idx = find_edge_by_topic_from_node(graph, topic, name);
+                if edge_idx.is_some() {
+                    if ui.link(format!("  -> {}", topic)).clicked() {
+                        result.clicked_edge = edge_idx;
+                    }
+                } else {
+                    ui.label(format!("  -> {}", topic));
+                }
             }
         }
     } else {
-        ui.label("Click a neuron or synapse to see details");
+        ui.label("Click a neuron to see details");
+        ui.label("Then click a topic to see synapse metrics");
     }
+
+    result
+}
+
+/// Find an edge by topic name where the given node is the target (input).
+fn find_edge_by_topic_to_node(
+    graph: &MessageFlowGraph,
+    topic: &str,
+    node_name: &str,
+) -> Option<EdgeIndex> {
+    for edge_idx in graph.graph.edge_indices() {
+        if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+            if edge.topic == topic {
+                if let Some((_, target_idx)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[target_idx].name == node_name {
+                        return Some(edge_idx);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find an edge by topic name where the given node is the source (output).
+fn find_edge_by_topic_from_node(
+    graph: &MessageFlowGraph,
+    topic: &str,
+    node_name: &str,
+) -> Option<EdgeIndex> {
+    for edge_idx in graph.graph.edge_indices() {
+        if let Some(edge) = graph.graph.edge_weight(edge_idx) {
+            if edge.topic == topic {
+                if let Some((source_idx, _)) = graph.graph.edge_endpoints(edge_idx) {
+                    if graph.graph[source_idx].name == node_name {
+                        return Some(edge_idx);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Draw edge details panel.
