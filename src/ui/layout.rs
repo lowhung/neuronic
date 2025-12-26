@@ -10,7 +10,7 @@ use crate::graph::MessageFlowGraph;
 use egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
 
-use super::types::LayoutMode;
+use super::types::{LayoutMode, NodeGroup};
 
 /// Apply force-directed layout to node positions.
 ///
@@ -26,6 +26,7 @@ pub fn apply_force_directed(
     positions: &mut HashMap<String, Pos2>,
     velocities: &mut HashMap<String, Vec2>,
     rect: Rect,
+    groups: &[NodeGroup],
 ) {
     let center = rect.center();
     let node_count = graph.module_count();
@@ -94,6 +95,37 @@ pub fn apply_force_directed(
                 let force = delta.normalized() * (dist - min_distance) * attraction;
                 *forces.get_mut(&source_node.name).unwrap() += force;
                 *forces.get_mut(&target_node.name).unwrap() -= force;
+            }
+        }
+    }
+
+    // Group attraction - nodes in same group attract each other
+    let group_attraction = 0.001;
+    for group in groups {
+        if group.collapsed {
+            continue; // Don't apply forces for collapsed groups
+        }
+        for i in 0..group.nodes.len() {
+            for j in (i + 1)..group.nodes.len() {
+                let name_i = &group.nodes[i];
+                let name_j = &group.nodes[j];
+
+                if let (Some(&pos_i), Some(&pos_j)) = (positions.get(name_i), positions.get(name_j))
+                {
+                    let delta = pos_j - pos_i;
+                    let dist = delta.length();
+
+                    if dist > min_distance * 0.5 {
+                        let force =
+                            delta.normalized() * (dist - min_distance * 0.5) * group_attraction;
+                        if let Some(f) = forces.get_mut(name_i) {
+                            *f += force;
+                        }
+                        if let Some(f) = forces.get_mut(name_j) {
+                            *f -= force;
+                        }
+                    }
+                }
             }
         }
     }
@@ -201,9 +233,12 @@ pub fn apply_layout(
     positions: &mut HashMap<String, Pos2>,
     velocities: &mut HashMap<String, Vec2>,
     rect: Rect,
+    groups: &[NodeGroup],
 ) {
     match mode {
-        LayoutMode::ForceDirected => apply_force_directed(graph, positions, velocities, rect),
+        LayoutMode::ForceDirected => {
+            apply_force_directed(graph, positions, velocities, rect, groups)
+        }
         LayoutMode::Hierarchical => apply_hierarchical(graph, positions, rect),
     }
 }
@@ -224,7 +259,7 @@ mod tests {
         let mut velocities = HashMap::new();
         let rect = create_test_rect();
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
 
         assert!(positions.is_empty());
         assert!(velocities.is_empty());
@@ -243,7 +278,7 @@ mod tests {
         let mut velocities = HashMap::new();
         let rect = create_test_rect();
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
 
         // Should have positions for both nodes
         assert_eq!(positions.len(), 2);
@@ -274,7 +309,7 @@ mod tests {
 
         let original_pos = positions["node1"];
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
 
         // Position should have changed due to center gravity, but not be reinitialized
         // (it should still exist and be near the original)
@@ -307,7 +342,7 @@ mod tests {
 
         // Run several iterations
         for _ in 0..10 {
-            apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+            apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
         }
 
         // Nodes should have moved apart
@@ -463,6 +498,7 @@ mod tests {
             &mut positions,
             &mut velocities,
             rect,
+            &[],
         );
         assert!(positions.contains_key("node1"));
         assert!(velocities.contains_key("node1"));
@@ -476,6 +512,7 @@ mod tests {
             &mut positions,
             &mut velocities,
             rect,
+            &[],
         );
         assert!(positions.contains_key("node1"));
     }

@@ -8,7 +8,7 @@ use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 
 use super::theme::Theme;
-use super::types::{NodeActivity, PulseRing, SynapseParticle};
+use super::types::{NodeActivity, NodeGroup, PulseRing, SynapseParticle};
 
 /// Calculate a point on a quadratic Bezier curve.
 ///
@@ -145,6 +145,7 @@ pub struct DrawContext<'a> {
     pub activity: &'a HashMap<String, NodeActivity>,
     pub particles: &'a HashMap<(String, String, String), Vec<SynapseParticle>>,
     pub pulse_rings: &'a HashMap<String, Vec<PulseRing>>,
+    pub node_groups: &'a [NodeGroup],
     pub selected_node: Option<&'a String>,
     pub highlighted_node: Option<&'a String>,
     pub theme: &'a Theme,
@@ -358,6 +359,19 @@ impl<'a> DrawContext<'a> {
             // Inner highlight (nucleus)
             let nucleus_color = lerp_color(color, Color32::WHITE, 0.3);
             painter.circle_filled(pos, radius * 0.4, nucleus_color);
+
+            // Group color ring (drawn before selection ring)
+            for (group_idx, group) in self.node_groups.iter().enumerate() {
+                if !group.collapsed && group.nodes.contains(&node.name) {
+                    let group_color = super::types::get_group_color(group_idx);
+                    painter.circle_stroke(
+                        pos,
+                        radius + 6.0 * self.zoom,
+                        Stroke::new(3.0 * self.zoom, group_color),
+                    );
+                    break; // Only show first matching group
+                }
+            }
 
             // Selection/highlight ring
             if is_selected || is_highlighted {

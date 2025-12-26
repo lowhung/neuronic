@@ -46,11 +46,27 @@ pub struct PulseRing {
 
 /// Node group for clustering.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct NodeGroup {
     pub name: String,
     pub pattern: String,
     pub nodes: Vec<String>,
     pub collapsed: bool,
     pub color: Color32,
+}
+
+/// Predefined color palette for node groups.
+pub const GROUP_COLORS: [Color32; 8] = [
+    Color32::from_rgb(70, 130, 180),  // Steel blue
+    Color32::from_rgb(144, 238, 144), // Light green
+    Color32::from_rgb(255, 182, 193), // Light pink
+    Color32::from_rgb(255, 218, 185), // Peach
+    Color32::from_rgb(221, 160, 221), // Plum
+    Color32::from_rgb(176, 224, 230), // Powder blue
+    Color32::from_rgb(255, 255, 150), // Light yellow
+    Color32::from_rgb(230, 230, 250), // Lavender
+];
+
+/// Get a color for a group by index.
+pub fn get_group_color(index: usize) -> Color32 {
+    GROUP_COLORS[index % GROUP_COLORS.len()]
 }

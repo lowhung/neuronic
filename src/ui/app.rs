@@ -365,6 +365,12 @@ impl eframe::App for NeuronicApp {
                     ui.add_space(16.0);
                     panels::draw_legend(ui, &self.theme);
                 }
+
+                // Show group legend if groups exist
+                if !self.node_groups.is_empty() {
+                    ui.add_space(16.0);
+                    panels::draw_group_legend(ui, &self.node_groups);
+                }
             });
 
         // Left panel for filters/groups if open
@@ -422,6 +428,7 @@ impl eframe::App for NeuronicApp {
                 &mut self.node_positions,
                 &mut self.node_velocities,
                 rect,
+                &self.node_groups,
             );
 
             // Focus on highlighted node
@@ -444,6 +451,7 @@ impl eframe::App for NeuronicApp {
                 activity: &self.node_activity,
                 particles: &self.synapse_particles,
                 pulse_rings: &self.pulse_rings,
+                node_groups: &self.node_groups,
                 selected_node: self.selected_node.as_ref(),
                 highlighted_node: self.highlighted_node.as_ref(),
                 theme: &self.theme,

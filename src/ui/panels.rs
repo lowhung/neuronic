@@ -11,7 +11,7 @@ use crate::graph::{HealthStatus, MessageFlowGraph};
 use egui::{Color32, Vec2};
 
 use super::theme::Theme;
-use super::types::{NodeActivity, NodeGroup};
+use super::types::{get_group_color, NodeActivity, NodeGroup};
 
 /// Draw the details panel showing information about the selected node.
 ///
@@ -110,6 +110,31 @@ fn draw_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
     });
 }
 
+/// Draw a legend for active node groups.
+pub fn draw_group_legend(ui: &mut egui::Ui, groups: &[NodeGroup]) {
+    if groups.is_empty() {
+        return;
+    }
+
+    ui.heading("Groups");
+    ui.separator();
+
+    for (idx, group) in groups.iter().enumerate() {
+        let color = get_group_color(idx);
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 16.0), egui::Sense::hover());
+            ui.painter()
+                .circle_stroke(rect.center(), 7.0, egui::Stroke::new(2.0, color));
+            let status = if group.collapsed {
+                format!("{} (collapsed)", group.name)
+            } else {
+                format!("{} ({})", group.name, group.nodes.len())
+            };
+            ui.label(status);
+        });
+    }
+}
+
 /// Draw the topic filter panel for hiding noisy topics.
 ///
 /// Returns `true` if filters were modified, indicating the graph
@@ -204,12 +229,13 @@ pub fn draw_group_panel(
                 .collect();
 
             if !nodes.is_empty() {
+                let color = get_group_color(groups.len());
                 groups.push(NodeGroup {
                     name: format!("*{}", pattern),
                     pattern: pattern.clone(),
                     nodes,
                     collapsed: false,
-                    color: Color32::from_rgb(100, 150, 200),
+                    color,
                 });
             }
             new_pattern.clear();
