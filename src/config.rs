@@ -115,3 +115,134 @@ impl NeuronicConfig {
         Ok(neuronic_config)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config::{Config, File};
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_default_config() {
+        let config = NeuronicConfig::default();
+
+        assert_eq!(config.filter.ignored_topics, vec!["cardano.query."]);
+        assert_eq!(config.graph.backlog_warning, 100);
+        assert_eq!(config.graph.backlog_critical, 1000);
+        assert_eq!(config.graph.pending_warning_ms, 500);
+        assert_eq!(config.graph.pending_critical_ms, 2000);
+    }
+
+    #[test]
+    fn test_filter_config_default() {
+        let filter = FilterConfig::default();
+        assert_eq!(filter.ignored_topics, vec!["cardano.query."]);
+    }
+
+    #[test]
+    fn test_graph_config_default() {
+        let graph = GraphConfig::default();
+        assert_eq!(graph.backlog_warning, 100);
+        assert_eq!(graph.backlog_critical, 1000);
+        assert_eq!(graph.pending_warning_ms, 500);
+        assert_eq!(graph.pending_critical_ms, 2000);
+    }
+
+    #[test]
+    fn test_load_nonexistent_file_uses_defaults() {
+        let path = Path::new("nonexistent_config_file.toml");
+        let config = NeuronicConfig::load(path).unwrap();
+
+        // When loading from a nonexistent file but config.default.toml exists,
+        // the values come from config.default.toml
+        assert_eq!(config.filter.ignored_topics, vec!["cardano.query."]);
+        assert_eq!(config.graph.backlog_warning, 100);
+    }
+
+    #[test]
+    fn test_config_file_values_are_loaded() {
+        // Test config loading by directly using the config crate
+        // This avoids changing directories which causes race conditions in parallel tests
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("user_config.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[filter]
+ignored_topics = ["test.prefix.", "another.prefix."]
+
+[graph]
+backlog_warning = 50
+backlog_critical = 500
+pending_warning_ms = 250
+pending_critical_ms = 1000
+"#,
+        )
+        .unwrap();
+
+        // Build config directly from just the user file (no default file)
+        let config = Config::builder()
+            .add_source(File::from(config_path.as_path()))
+            .build()
+            .unwrap();
+
+        let neuronic_config: NeuronicConfig = config.try_deserialize().unwrap();
+
+        assert_eq!(
+            neuronic_config.filter.ignored_topics,
+            vec!["test.prefix.", "another.prefix."]
+        );
+        assert_eq!(neuronic_config.graph.backlog_warning, 50);
+        assert_eq!(neuronic_config.graph.backlog_critical, 500);
+        assert_eq!(neuronic_config.graph.pending_warning_ms, 250);
+        assert_eq!(neuronic_config.graph.pending_critical_ms, 1000);
+    }
+
+    #[test]
+    fn test_partial_config_uses_struct_defaults_for_missing() {
+        // Test that partial config uses struct defaults for unspecified values
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("partial_config.toml");
+
+        std::fs::write(
+            &config_path,
+            r#"
+[graph]
+backlog_warning = 200
+"#,
+        )
+        .unwrap();
+
+        // Build config directly from just the user file
+        let config = Config::builder()
+            .add_source(File::from(config_path.as_path()))
+            .build()
+            .unwrap();
+
+        let neuronic_config: NeuronicConfig = config.try_deserialize().unwrap_or_default();
+
+        // Custom value from user file
+        assert_eq!(neuronic_config.graph.backlog_warning, 200);
+        // Struct defaults for unspecified values
+        assert_eq!(neuronic_config.graph.backlog_critical, 1000);
+        assert_eq!(
+            neuronic_config.filter.ignored_topics,
+            vec!["cardano.query."]
+        );
+    }
+
+    #[test]
+    fn test_empty_config_uses_struct_defaults() {
+        // When no config file exists, struct defaults should be used
+        let config = Config::builder().build().unwrap();
+        let neuronic_config: NeuronicConfig = config.try_deserialize().unwrap_or_default();
+
+        assert_eq!(
+            neuronic_config.filter.ignored_topics,
+            vec!["cardano.query."]
+        );
+        assert_eq!(neuronic_config.graph.backlog_warning, 100);
+        assert_eq!(neuronic_config.graph.backlog_critical, 1000);
+    }
+}

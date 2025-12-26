@@ -35,7 +35,7 @@ pub fn find_matching_modules(graph: &MessageFlowGraph, query: &str) -> Vec<Strin
 }
 
 /// Simple fuzzy matching: all characters in query appear in order in target.
-fn fuzzy_match(target: &str, query: &str) -> bool {
+pub fn fuzzy_match(target: &str, query: &str) -> bool {
     let mut target_chars = target.chars();
     for query_char in query.chars() {
         loop {
@@ -154,4 +154,187 @@ pub fn draw_search_box(
     }
 
     selected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::MessageFlowGraph;
+    use buswatch_types::Snapshot;
+
+    #[test]
+    fn test_fuzzy_match_exact() {
+        assert!(fuzzy_match("block_unpacker", "block_unpacker"));
+    }
+
+    #[test]
+    fn test_fuzzy_match_subsequence() {
+        assert!(fuzzy_match("block_unpacker", "blkunp"));
+        assert!(fuzzy_match("accounts_state", "accst"));
+        assert!(fuzzy_match("message_handler", "msghnd"));
+    }
+
+    #[test]
+    fn test_fuzzy_match_single_char() {
+        assert!(fuzzy_match("block_unpacker", "b"));
+        assert!(fuzzy_match("block_unpacker", "u"));
+    }
+
+    #[test]
+    fn test_fuzzy_match_empty_query() {
+        assert!(fuzzy_match("block_unpacker", ""));
+    }
+
+    #[test]
+    fn test_fuzzy_match_no_match() {
+        assert!(!fuzzy_match("block_unpacker", "xyz"));
+        assert!(!fuzzy_match("block_unpacker", "zb")); // z not in target
+    }
+
+    #[test]
+    fn test_fuzzy_match_wrong_order() {
+        assert!(!fuzzy_match("abc", "cba")); // Characters must appear in order
+    }
+
+    #[test]
+    fn test_fuzzy_match_query_longer_than_target() {
+        assert!(!fuzzy_match("ab", "abc"));
+    }
+
+    #[test]
+    fn test_find_matching_modules_empty_query() {
+        let graph = MessageFlowGraph::new();
+        let matches = find_matching_modules(&graph, "");
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_find_matching_modules_substring() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("block_unpacker", |m| m.write("events", |w| w.count(10)))
+            .module("block_handler", |m| m.write("events", |w| w.count(20)))
+            .module("accounts_state", |m| m.read("events", |r| r.count(5)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let matches = find_matching_modules(&graph, "block");
+        assert_eq!(matches.len(), 2);
+        assert!(matches.contains(&"block_unpacker".to_string()));
+        assert!(matches.contains(&"block_handler".to_string()));
+    }
+
+    #[test]
+    fn test_find_matching_modules_case_insensitive() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("BlockUnpacker", |m| m.write("events", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let matches = find_matching_modules(&graph, "blockunpacker");
+        assert_eq!(matches.len(), 1);
+        assert!(matches.contains(&"BlockUnpacker".to_string()));
+
+        let matches_upper = find_matching_modules(&graph, "BLOCK");
+        assert_eq!(matches_upper.len(), 1);
+    }
+
+    #[test]
+    fn test_find_matching_modules_fuzzy() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("message_processor", |m| m.write("events", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        // Fuzzy match: "msgprc" should match "message_processor"
+        let matches = find_matching_modules(&graph, "msgprc");
+        assert_eq!(matches.len(), 1);
+        assert!(matches.contains(&"message_processor".to_string()));
+    }
+
+    #[test]
+    fn test_get_best_match_empty() {
+        let matches: Vec<String> = vec![];
+        assert!(get_best_match(&matches, "test").is_none());
+    }
+
+    #[test]
+    fn test_get_best_match_prefers_prefix() {
+        let matches = vec![
+            "handler_block".to_string(),
+            "block_handler".to_string(),
+            "the_block".to_string(),
+        ];
+
+        let best = get_best_match(&matches, "block");
+        assert_eq!(best, Some("block_handler".to_string()));
+    }
+
+    #[test]
+    fn test_get_best_match_returns_first_if_no_prefix() {
+        let matches = vec!["handler_block".to_string(), "the_block".to_string()];
+
+        let best = get_best_match(&matches, "block");
+        // Neither starts with "block", so returns first
+        assert_eq!(best, Some("handler_block".to_string()));
+    }
+
+    #[test]
+    fn test_get_best_match_case_insensitive() {
+        let matches = vec!["Handler".to_string(), "BlockHandler".to_string()];
+
+        let best = get_best_match(&matches, "Block");
+        assert_eq!(best, Some("BlockHandler".to_string()));
+    }
+
+    #[test]
+    fn test_focus_on_node_existing() {
+        let mut positions = HashMap::new();
+        positions.insert("node1".to_string(), Pos2::new(100.0, 200.0));
+        positions.insert("node2".to_string(), Pos2::new(300.0, 400.0));
+
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut pan = Vec2::ZERO;
+        let mut zoom = 0.5;
+
+        focus_on_node("node1", &positions, viewport, &mut pan, &mut zoom);
+
+        // Zoom should be at least 1.0
+        assert_eq!(zoom, 1.0);
+        // Pan should center on node1
+        let center = viewport.center();
+        let expected_pan = center - Pos2::new(100.0, 200.0);
+        assert_eq!(pan, expected_pan);
+    }
+
+    #[test]
+    fn test_focus_on_node_nonexistent() {
+        let positions = HashMap::new();
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut pan = Vec2::new(10.0, 20.0);
+        let mut zoom = 2.0;
+
+        focus_on_node("nonexistent", &positions, viewport, &mut pan, &mut zoom);
+
+        // Should not change pan or zoom for nonexistent node
+        assert_eq!(pan, Vec2::new(10.0, 20.0));
+        assert_eq!(zoom, 2.0);
+    }
+
+    #[test]
+    fn test_focus_on_node_preserves_high_zoom() {
+        let mut positions = HashMap::new();
+        positions.insert("node1".to_string(), Pos2::new(100.0, 200.0));
+
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut pan = Vec2::ZERO;
+        let mut zoom = 2.0; // Already zoomed in
+
+        focus_on_node("node1", &positions, viewport, &mut pan, &mut zoom);
+
+        // Should preserve zoom level if already >= 1.0
+        assert_eq!(zoom, 2.0);
+    }
 }

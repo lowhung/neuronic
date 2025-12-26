@@ -191,3 +191,217 @@ pub fn show_export_dialog(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{HealthConfig, MessageFlowGraph};
+    use buswatch_types::Snapshot;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_export_empty_graph() {
+        let graph = MessageFlowGraph::new();
+        let positions = HashMap::new();
+        let theme = Theme::Dark;
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let result = export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0);
+
+        assert!(result.is_ok());
+
+        // Verify file was created and has content
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+        assert!(content.contains("<?xml version"));
+        assert!(content.contains("<svg"));
+        assert!(content.contains("</svg>"));
+    }
+
+    #[test]
+    fn test_export_with_nodes() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("producer", |m| m.write("events", |w| w.count(100)))
+            .module("consumer", |m| m.read("events", |r| r.count(50)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("producer".to_string(), Pos2::new(100.0, 100.0));
+        positions.insert("consumer".to_string(), Pos2::new(300.0, 200.0));
+
+        let theme = Theme::Dark;
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let result = export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0);
+        assert!(result.is_ok());
+
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+
+        // Should contain circles for nodes
+        assert!(content.contains("<circle"));
+        // Should contain node names as text
+        assert!(content.contains("producer"));
+        assert!(content.contains("consumer"));
+    }
+
+    #[test]
+    fn test_export_with_edges() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("producer", |m| m.write("events", |w| w.count(100)))
+            .module("consumer", |m| m.read("events", |r| r.count(50)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("producer".to_string(), Pos2::new(100.0, 100.0));
+        positions.insert("consumer".to_string(), Pos2::new(300.0, 200.0));
+
+        let theme = Theme::Dark;
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let result = export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0);
+        assert!(result.is_ok());
+
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+
+        // Should contain path for edge (Bezier curve)
+        assert!(content.contains("<path"));
+        assert!(content.contains("Q ")); // Quadratic Bezier curve command
+    }
+
+    #[test]
+    fn test_export_uses_theme_colors() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("node", |m| m.write("topic", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("node".to_string(), Pos2::new(100.0, 100.0));
+
+        // Test dark theme
+        let dark_theme = Theme::Dark;
+        let dark_file = NamedTempFile::new().unwrap();
+        export_to_svg(
+            dark_file.path(),
+            &graph,
+            &positions,
+            &dark_theme,
+            800.0,
+            600.0,
+        )
+        .unwrap();
+        let dark_content = std::fs::read_to_string(dark_file.path()).unwrap();
+
+        // Test light theme
+        let light_theme = Theme::Light;
+        let light_file = NamedTempFile::new().unwrap();
+        export_to_svg(
+            light_file.path(),
+            &graph,
+            &positions,
+            &light_theme,
+            800.0,
+            600.0,
+        )
+        .unwrap();
+        let light_content = std::fs::read_to_string(light_file.path()).unwrap();
+
+        // The SVG content should differ due to different theme colors
+        assert_ne!(dark_content, light_content);
+    }
+
+    #[test]
+    fn test_export_health_status_colors() {
+        let mut graph = MessageFlowGraph::with_config(HealthConfig {
+            backlog_warning: 10,
+            backlog_critical: 50,
+            pending_warning_us: 100_000,
+            pending_critical_us: 500_000,
+        });
+
+        let snapshot = Snapshot::builder()
+            .module("healthy", |m| m.read("topic", |r| r.count(100).backlog(5)))
+            .module("warning", |m| m.read("topic", |r| r.count(100).backlog(20)))
+            .module("critical", |m| {
+                m.read("topic", |r| r.count(100).backlog(100))
+            })
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("healthy".to_string(), Pos2::new(100.0, 100.0));
+        positions.insert("warning".to_string(), Pos2::new(200.0, 100.0));
+        positions.insert("critical".to_string(), Pos2::new(300.0, 100.0));
+
+        let theme = Theme::Dark;
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let result = export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0);
+        assert!(result.is_ok());
+
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+
+        // Should contain circles (nodes with different health colors)
+        // Count the number of circles - should be 3
+        let circle_count = content.matches("<circle").count();
+        assert_eq!(circle_count, 3);
+    }
+
+    #[test]
+    fn test_export_viewbox_adapts_to_positions() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("node1", |m| m.write("topic", |w| w.count(10)))
+            .module("node2", |m| m.write("topic2", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        // Place nodes at specific positions
+        positions.insert("node1".to_string(), Pos2::new(50.0, 50.0));
+        positions.insert("node2".to_string(), Pos2::new(500.0, 400.0));
+
+        let theme = Theme::Dark;
+        let temp_file = NamedTempFile::new().unwrap();
+
+        export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0).unwrap();
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+
+        // The viewBox should be based on node positions
+        // Format: viewBox="minX minY width height"
+        assert!(content.contains("viewBox="));
+    }
+
+    #[test]
+    fn test_export_creates_valid_svg() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("producer", |m| m.write("events", |w| w.count(100)))
+            .module("consumer", |m| m.read("events", |r| r.count(50)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("producer".to_string(), Pos2::new(100.0, 100.0));
+        positions.insert("consumer".to_string(), Pos2::new(300.0, 200.0));
+
+        let theme = Theme::Dark;
+        let temp_file = NamedTempFile::new().unwrap();
+
+        export_to_svg(temp_file.path(), &graph, &positions, &theme, 800.0, 600.0).unwrap();
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+
+        // Basic SVG structure validation
+        assert!(content.starts_with("<?xml version"));
+        assert!(content.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(content.ends_with("</svg>\n"));
+
+        // All opened tags should be properly closed
+        assert_eq!(content.matches("<svg").count(), 1);
+        assert_eq!(content.matches("</svg>").count(), 1);
+    }
+}

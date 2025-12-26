@@ -207,3 +207,276 @@ pub fn apply_layout(
         LayoutMode::Hierarchical => apply_hierarchical(graph, positions, rect),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buswatch_types::Snapshot;
+
+    fn create_test_rect() -> Rect {
+        Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))
+    }
+
+    #[test]
+    fn test_force_directed_empty_graph() {
+        let graph = MessageFlowGraph::new();
+        let mut positions = HashMap::new();
+        let mut velocities = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+
+        assert!(positions.is_empty());
+        assert!(velocities.is_empty());
+    }
+
+    #[test]
+    fn test_force_directed_initializes_positions() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("node1", |m| m.write("topic", |w| w.count(10)))
+            .module("node2", |m| m.read("topic", |r| r.count(5)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let mut velocities = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+
+        // Should have positions for both nodes
+        assert_eq!(positions.len(), 2);
+        assert!(positions.contains_key("node1"));
+        assert!(positions.contains_key("node2"));
+
+        // Positions should be within the rect
+        for pos in positions.values() {
+            // Allow some margin for initial placement
+            assert!(pos.x >= -100.0 && pos.x <= rect.width() + 100.0);
+            assert!(pos.y >= -100.0 && pos.y <= rect.height() + 100.0);
+        }
+    }
+
+    #[test]
+    fn test_force_directed_preserves_existing_positions() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("node1", |m| m.write("topic", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        positions.insert("node1".to_string(), Pos2::new(100.0, 200.0));
+        let mut velocities = HashMap::new();
+        velocities.insert("node1".to_string(), Vec2::ZERO);
+        let rect = create_test_rect();
+
+        let original_pos = positions["node1"];
+
+        apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+
+        // Position should have changed due to center gravity, but not be reinitialized
+        // (it should still exist and be near the original)
+        assert!(positions.contains_key("node1"));
+        let new_pos = positions["node1"];
+        // With center gravity, it should move toward center but not teleport
+        let distance =
+            ((new_pos.x - original_pos.x).powi(2) + (new_pos.y - original_pos.y).powi(2)).sqrt();
+        assert!(distance < 50.0, "Position changed too much");
+    }
+
+    #[test]
+    fn test_force_directed_nodes_repel() {
+        let mut graph = MessageFlowGraph::new();
+        // Create two unconnected nodes
+        let snapshot = Snapshot::builder()
+            .module("node1", |m| m.write("topic_a", |w| w.count(10)))
+            .module("node2", |m| m.write("topic_b", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        // Place nodes very close together
+        positions.insert("node1".to_string(), Pos2::new(400.0, 300.0));
+        positions.insert("node2".to_string(), Pos2::new(401.0, 300.0));
+        let mut velocities = HashMap::new();
+        velocities.insert("node1".to_string(), Vec2::ZERO);
+        velocities.insert("node2".to_string(), Vec2::ZERO);
+        let rect = create_test_rect();
+
+        // Run several iterations
+        for _ in 0..10 {
+            apply_force_directed(&graph, &mut positions, &mut velocities, rect);
+        }
+
+        // Nodes should have moved apart
+        let pos1 = positions["node1"];
+        let pos2 = positions["node2"];
+        let distance = ((pos2.x - pos1.x).powi(2) + (pos2.y - pos1.y).powi(2)).sqrt();
+        assert!(distance > 5.0, "Nodes should repel each other");
+    }
+
+    #[test]
+    fn test_hierarchical_empty_graph() {
+        let graph = MessageFlowGraph::new();
+        let mut positions = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_hierarchical(&graph, &mut positions, rect);
+
+        assert!(positions.is_empty());
+    }
+
+    #[test]
+    fn test_hierarchical_places_sources_at_top() {
+        let mut graph = MessageFlowGraph::new();
+        // Create a source-only node (writes only)
+        let snapshot = Snapshot::builder()
+            .module("source", |m| m.write("events", |w| w.count(100)))
+            .module("sink", |m| m.read("events", |r| r.count(50)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_hierarchical(&graph, &mut positions, rect);
+
+        let source_pos = positions.get("source").unwrap();
+        let sink_pos = positions.get("sink").unwrap();
+
+        // Source should be at top (lower y value)
+        assert!(
+            source_pos.y < sink_pos.y,
+            "Source should be above sink: source_y={}, sink_y={}",
+            source_pos.y,
+            sink_pos.y
+        );
+    }
+
+    #[test]
+    fn test_hierarchical_places_sinks_at_bottom() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("source", |m| m.write("events", |w| w.count(100)))
+            .module("sink", |m| m.read("events", |r| r.count(50)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let rect = create_test_rect();
+        let padding = 80.0;
+
+        apply_hierarchical(&graph, &mut positions, rect);
+
+        let sink_pos = positions.get("sink").unwrap();
+
+        // Sink should be near bottom
+        assert!(
+            (sink_pos.y - (rect.bottom() - padding)).abs() < 1.0,
+            "Sink should be at bottom"
+        );
+    }
+
+    #[test]
+    fn test_hierarchical_places_middle_nodes_in_center() {
+        let mut graph = MessageFlowGraph::new();
+        // Middle node both reads and writes
+        let snapshot = Snapshot::builder()
+            .module("source", |m| m.write("input", |w| w.count(100)))
+            .module("processor", |m| {
+                m.read("input", |r| r.count(50))
+                    .write("output", |w| w.count(50))
+            })
+            .module("sink", |m| m.read("output", |r| r.count(25)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_hierarchical(&graph, &mut positions, rect);
+
+        let source_pos = positions.get("source").unwrap();
+        let processor_pos = positions.get("processor").unwrap();
+        let sink_pos = positions.get("sink").unwrap();
+
+        // Processor should be between source and sink
+        assert!(
+            processor_pos.y > source_pos.y,
+            "Processor should be below source"
+        );
+        assert!(
+            processor_pos.y < sink_pos.y,
+            "Processor should be above sink"
+        );
+    }
+
+    #[test]
+    fn test_hierarchical_distributes_nodes_horizontally() {
+        let mut graph = MessageFlowGraph::new();
+        // Multiple sources
+        let snapshot = Snapshot::builder()
+            .module("source1", |m| m.write("a", |w| w.count(10)))
+            .module("source2", |m| m.write("b", |w| w.count(10)))
+            .module("source3", |m| m.write("c", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let rect = create_test_rect();
+
+        apply_hierarchical(&graph, &mut positions, rect);
+
+        let pos1 = positions.get("source1").unwrap();
+        let pos2 = positions.get("source2").unwrap();
+        let pos3 = positions.get("source3").unwrap();
+
+        // All should be at same y level
+        assert!((pos1.y - pos2.y).abs() < 1.0);
+        assert!((pos2.y - pos3.y).abs() < 1.0);
+
+        // Should be spread horizontally (different x values)
+        let mut x_values = [pos1.x, pos2.x, pos3.x];
+        x_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(x_values[1] - x_values[0] > 10.0);
+        assert!(x_values[2] - x_values[1] > 10.0);
+    }
+
+    #[test]
+    fn test_apply_layout_dispatches_correctly() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("node1", |m| m.write("topic", |w| w.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let mut positions = HashMap::new();
+        let mut velocities = HashMap::new();
+        let rect = create_test_rect();
+
+        // Test ForceDirected mode
+        apply_layout(
+            LayoutMode::ForceDirected,
+            &graph,
+            &mut positions,
+            &mut velocities,
+            rect,
+        );
+        assert!(positions.contains_key("node1"));
+        assert!(velocities.contains_key("node1"));
+
+        // Clear and test Hierarchical mode
+        positions.clear();
+        velocities.clear();
+        apply_layout(
+            LayoutMode::Hierarchical,
+            &graph,
+            &mut positions,
+            &mut velocities,
+            rect,
+        );
+        assert!(positions.contains_key("node1"));
+    }
+}

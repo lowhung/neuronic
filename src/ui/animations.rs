@@ -108,3 +108,357 @@ pub fn detect_activity(
         activity.last_count = total;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_animations_decays_fire_intensity() {
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "test_node".to_string(),
+            NodeActivity {
+                last_count: 100,
+                fire_intensity: 1.0,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        // Run update with dt = 0.1 seconds
+        update_animations(
+            0.1,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        // Fire intensity should decay: 1.0 - (0.1 * 2.0) = 0.8
+        let activity = node_activity.get("test_node").unwrap();
+        assert!((activity.fire_intensity - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_update_animations_fire_intensity_clamps_to_zero() {
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "test_node".to_string(),
+            NodeActivity {
+                last_count: 100,
+                fire_intensity: 0.1,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        // Large dt that would make intensity negative
+        update_animations(
+            1.0,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        let activity = node_activity.get("test_node").unwrap();
+        assert_eq!(activity.fire_intensity, 0.0);
+    }
+
+    #[test]
+    fn test_update_animations_moves_particles() {
+        let mut node_activity = HashMap::new();
+        let mut synapse_particles = HashMap::new();
+        synapse_particles.insert(
+            ("src".to_string(), "dst".to_string(), "topic".to_string()),
+            vec![SynapseParticle {
+                progress: 0.0,
+                speed: 1.0,
+            }],
+        );
+        let mut pulse_rings = HashMap::new();
+
+        update_animations(
+            0.1,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        let key = ("src".to_string(), "dst".to_string(), "topic".to_string());
+        let particles = synapse_particles.get(&key).unwrap();
+        // Progress should increase: 0.0 + (1.0 * 0.1) = 0.1
+        assert!((particles[0].progress - 0.1).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_update_animations_removes_finished_particles() {
+        let mut node_activity = HashMap::new();
+        let mut synapse_particles = HashMap::new();
+        synapse_particles.insert(
+            ("src".to_string(), "dst".to_string(), "topic".to_string()),
+            vec![SynapseParticle {
+                progress: 0.95,
+                speed: 1.0,
+            }],
+        );
+        let mut pulse_rings = HashMap::new();
+
+        // Progress becomes 0.95 + 0.1 = 1.05, which is >= 1.0
+        update_animations(
+            0.1,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        // Particle should be removed, and empty vec should be cleaned up
+        assert!(synapse_particles.is_empty());
+    }
+
+    #[test]
+    fn test_update_animations_expands_pulse_rings() {
+        let mut node_activity = HashMap::new();
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+        pulse_rings.insert(
+            "test_node".to_string(),
+            vec![PulseRing {
+                radius: 20.0,
+                max_radius: 100.0,
+                opacity: 1.0,
+            }],
+        );
+
+        update_animations(
+            0.1,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        let rings = pulse_rings.get("test_node").unwrap();
+        // Radius should increase: 20.0 + (0.1 * 50.0) = 25.0
+        assert!((rings[0].radius - 25.0).abs() < 0.001);
+        // Opacity should decrease: 1.0 - (25.0 / 100.0) = 0.75
+        assert!((rings[0].opacity - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_update_animations_removes_finished_pulse_rings() {
+        let mut node_activity = HashMap::new();
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+        pulse_rings.insert(
+            "test_node".to_string(),
+            vec![PulseRing {
+                radius: 95.0,
+                max_radius: 100.0,
+                opacity: 0.05,
+            }],
+        );
+
+        // Radius becomes 95.0 + 5.0 = 100.0, which equals max_radius
+        update_animations(
+            0.1,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+        );
+
+        // Ring should be removed
+        assert!(pulse_rings.is_empty());
+    }
+
+    #[test]
+    fn test_detect_activity_increases_fire_intensity() {
+        let snapshot = Snapshot::builder()
+            .module("test_module", |m| m.write("topic", |w| w.count(200)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "test_module".to_string(),
+            NodeActivity {
+                last_count: 100, // Previous count
+                fire_intensity: 0.0,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            false,
+        );
+
+        let activity = node_activity.get("test_module").unwrap();
+        // Delta is 200 - 100 = 100, fire_intensity += min(100/100, 1.0) = 1.0
+        assert!(activity.fire_intensity > 0.0);
+        // Last count should be updated
+        assert_eq!(activity.last_count, 200);
+    }
+
+    #[test]
+    fn test_detect_activity_spawns_pulse_ring_for_heavy_activity() {
+        let snapshot = Snapshot::builder()
+            .module("heavy_module", |m| m.write("topic", |w| w.count(200)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "heavy_module".to_string(),
+            NodeActivity {
+                last_count: 100, // Delta will be 100 > 50
+                fire_intensity: 0.0,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            true, // Enable pulse rings
+        );
+
+        // Should have spawned a pulse ring
+        assert!(pulse_rings.contains_key("heavy_module"));
+        let rings = pulse_rings.get("heavy_module").unwrap();
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].radius, 15.0); // Initial radius
+    }
+
+    #[test]
+    fn test_detect_activity_no_pulse_ring_when_disabled() {
+        let snapshot = Snapshot::builder()
+            .module("heavy_module", |m| m.write("topic", |w| w.count(200)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "heavy_module".to_string(),
+            NodeActivity {
+                last_count: 100,
+                fire_intensity: 0.0,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            false, // Disable pulse rings
+        );
+
+        assert!(pulse_rings.is_empty());
+    }
+
+    #[test]
+    fn test_detect_activity_spawns_synapse_particles() {
+        let snapshot = Snapshot::builder()
+            .module("producer", |m| m.write("events", |w| w.count(200)))
+            .module("consumer", |m| m.read("events", |r| r.count(100)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "producer".to_string(),
+            NodeActivity {
+                last_count: 100, // Delta of 100 for producer
+                fire_intensity: 0.0,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            false,
+        );
+
+        // Should have particles on the edge from producer to consumer
+        let key = (
+            "producer".to_string(),
+            "consumer".to_string(),
+            "events".to_string(),
+        );
+        assert!(synapse_particles.contains_key(&key));
+        let particles = synapse_particles.get(&key).unwrap();
+        assert!(!particles.is_empty());
+    }
+
+    #[test]
+    fn test_detect_activity_no_change_when_count_same() {
+        let snapshot = Snapshot::builder()
+            .module("stable_module", |m| m.write("topic", |w| w.count(100)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        node_activity.insert(
+            "stable_module".to_string(),
+            NodeActivity {
+                last_count: 100, // Same as snapshot
+                fire_intensity: 0.5,
+                last_update: Instant::now(),
+            },
+        );
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            true,
+        );
+
+        let activity = node_activity.get("stable_module").unwrap();
+        // Fire intensity should not increase (stays at 0.5)
+        assert!((activity.fire_intensity - 0.5).abs() < 0.001);
+        // No pulse rings
+        assert!(pulse_rings.is_empty());
+    }
+
+    #[test]
+    fn test_detect_activity_creates_new_activity_entry() {
+        let snapshot = Snapshot::builder()
+            .module("new_module", |m| m.write("topic", |w| w.count(50)))
+            .build();
+
+        let mut node_activity = HashMap::new();
+        // No entry for new_module yet
+        let mut synapse_particles = HashMap::new();
+        let mut pulse_rings = HashMap::new();
+
+        detect_activity(
+            &snapshot,
+            &mut node_activity,
+            &mut synapse_particles,
+            &mut pulse_rings,
+            false,
+        );
+
+        // Should have created an entry
+        assert!(node_activity.contains_key("new_module"));
+        let activity = node_activity.get("new_module").unwrap();
+        assert_eq!(activity.last_count, 50);
+    }
+}
