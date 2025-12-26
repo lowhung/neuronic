@@ -1,9 +1,6 @@
 # Build artifacts
 /target
 
-# Local configuration (may contain credentials)
-neuronic.toml
-
 # IDE
 .idea/
 .vscode/
