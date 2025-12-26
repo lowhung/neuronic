@@ -6,6 +6,10 @@
 use buswatch_types::Snapshot;
 use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
+use std::time::Instant;
+
+/// Key for identifying an edge (source module, target module, topic).
+type EdgeKey = (String, String, String);
 
 /// Health status of a module or topic connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +105,80 @@ impl From<crate::config::GraphConfig> for HealthConfig {
     }
 }
 
+/// Tracks message counts and smoothed rates for rate inference.
+#[derive(Default)]
+struct RateTracker {
+    /// Previous message counts per edge.
+    prev_counts: HashMap<EdgeKey, u64>,
+    /// Smoothed rates per edge (exponential moving average).
+    smoothed_rates: HashMap<EdgeKey, f64>,
+    /// Timestamp of previous snapshot.
+    prev_time: Option<Instant>,
+}
+
+impl RateTracker {
+    /// Smoothing factor for exponential moving average (0.0-1.0).
+    /// Lower values = smoother (slower to respond), higher = more responsive.
+    const SMOOTHING_ALPHA: f64 = 0.3;
+
+    /// Calculate rate for an edge, using smoothing to avoid jumpy values.
+    fn calculate_rate(
+        &mut self,
+        key: EdgeKey,
+        message_count: u64,
+        elapsed_secs: Option<f64>,
+    ) -> Option<f64> {
+        let instant_rate = self.calculate_instant_rate(&key, message_count, elapsed_secs);
+
+        // Update stored count for next iteration
+        self.prev_counts.insert(key.clone(), message_count);
+
+        // Apply exponential smoothing
+        let smoothed = match (instant_rate, self.smoothed_rates.get(&key)) {
+            (Some(new_rate), Some(&prev_smoothed)) => {
+                Self::SMOOTHING_ALPHA * new_rate + (1.0 - Self::SMOOTHING_ALPHA) * prev_smoothed
+            }
+            (Some(new_rate), None) => new_rate,
+            (None, Some(&prev_smoothed)) => {
+                // No new data, decay toward zero
+                (1.0 - Self::SMOOTHING_ALPHA) * prev_smoothed
+            }
+            (None, None) => return None,
+        };
+
+        self.smoothed_rates.insert(key, smoothed);
+        Some(smoothed)
+    }
+
+    /// Calculate instantaneous rate from count delta.
+    fn calculate_instant_rate(
+        &self,
+        key: &EdgeKey,
+        message_count: u64,
+        elapsed_secs: Option<f64>,
+    ) -> Option<f64> {
+        let prev_count = self.prev_counts.get(key)?;
+        let elapsed = elapsed_secs?;
+
+        if elapsed > 0.0 && message_count >= *prev_count {
+            let delta = message_count - prev_count;
+            Some(delta as f64 / elapsed)
+        } else {
+            None
+        }
+    }
+
+    /// Update the timestamp for the next calculation.
+    fn mark_snapshot_time(&mut self, now: Instant) {
+        self.prev_time = Some(now);
+    }
+
+    /// Get elapsed seconds since last snapshot.
+    fn elapsed_secs(&self, now: Instant) -> Option<f64> {
+        self.prev_time.map(|t| now.duration_since(t).as_secs_f64())
+    }
+}
+
 /// The message flow graph.
 pub struct MessageFlowGraph {
     /// The underlying petgraph.
@@ -113,6 +191,8 @@ pub struct MessageFlowGraph {
     pub last_update_ms: u64,
     /// Topic patterns to ignore.
     pub ignored_topic_prefixes: Vec<String>,
+    /// Rate inference tracker.
+    rate_tracker: RateTracker,
 }
 
 impl MessageFlowGraph {
@@ -126,6 +206,7 @@ impl MessageFlowGraph {
             ignored_topic_prefixes: vec![
                 "cardano.query.".to_string(), // Ignore query topics - too noisy
             ],
+            rate_tracker: RateTracker::default(),
         }
     }
 
@@ -140,6 +221,7 @@ impl MessageFlowGraph {
             health_config,
             last_update_ms: 0,
             ignored_topic_prefixes,
+            rate_tracker: RateTracker::default(),
         }
     }
 
@@ -159,6 +241,8 @@ impl MessageFlowGraph {
     /// Update the graph from a snapshot.
     pub fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
         self.last_update_ms = snapshot.timestamp_ms;
+        let now = Instant::now();
+        let elapsed_secs = self.rate_tracker.elapsed_secs(now);
 
         // First pass: create/update all module nodes
         for (module_name, metrics) in snapshot.iter() {
@@ -258,10 +342,21 @@ impl MessageFlowGraph {
                 for &(producer_idx, write_count, write_rate) in producers {
                     for &(consumer_idx, read_count, backlog, pending_us, read_rate) in consumers {
                         let health = self.compute_edge_health(backlog, pending_us);
+                        let message_count = write_count.max(read_count);
+
+                        // Use provided rate, or infer from count delta with smoothing
+                        let rate = write_rate.or(read_rate).or_else(|| {
+                            let source_name = &self.graph[producer_idx].name;
+                            let target_name = &self.graph[consumer_idx].name;
+                            let key = (source_name.clone(), target_name.clone(), topic.clone());
+                            self.rate_tracker
+                                .calculate_rate(key, message_count, elapsed_secs)
+                        });
+
                         let edge = TopicEdge {
                             topic: topic.clone(),
-                            message_count: write_count.max(read_count),
-                            rate: write_rate.or(read_rate),
+                            message_count,
+                            rate,
                             backlog,
                             pending_us,
                             health,
@@ -271,6 +366,8 @@ impl MessageFlowGraph {
                 }
             }
         }
+
+        self.rate_tracker.mark_snapshot_time(now);
     }
 
     /// Compute health status for a module based on its metrics.
