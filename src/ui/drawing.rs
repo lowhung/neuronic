@@ -8,7 +8,7 @@ use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 
 use super::theme::Theme;
-use super::types::{NodeActivity, PulseRing, SynapseParticle};
+use super::types::{NodeActivity, PulseRing, SelectedEdge, SynapseParticle};
 
 /// Calculate a point on a quadratic Bezier curve.
 ///
@@ -146,6 +146,7 @@ pub struct DrawContext<'a> {
     pub particles: &'a HashMap<(String, String, String), Vec<SynapseParticle>>,
     pub pulse_rings: &'a HashMap<String, Vec<PulseRing>>,
     pub selected_node: Option<&'a String>,
+    pub selected_edge: Option<&'a SelectedEdge>,
     pub highlighted_node: Option<&'a String>,
     pub theme: &'a Theme,
     pub zoom: f32,
@@ -179,6 +180,13 @@ impl<'a> DrawContext<'a> {
                 let target_node = &self.graph.graph[target];
                 let edge = &self.graph.graph[edge_idx];
 
+                // Check if this edge is selected
+                let is_selected = self.selected_edge.is_some_and(|sel| {
+                    sel.source_node == source_node.name
+                        && sel.target_node == target_node.name
+                        && sel.topic == edge.topic
+                });
+
                 let world_s = self
                     .positions
                     .get(&source_node.name)
@@ -193,14 +201,25 @@ impl<'a> DrawContext<'a> {
                 let pos_s = self.world_to_screen(world_s, rect);
                 let pos_t = self.world_to_screen(world_t, rect);
 
-                let edge_color = match edge.health {
-                    HealthStatus::Healthy => self.theme.synapse_base(),
-                    HealthStatus::Warning => self.theme.neuron_warning().gamma_multiply(0.7),
-                    HealthStatus::Critical => self.theme.neuron_critical().gamma_multiply(0.7),
+                // Use white/bright color for selected edge
+                let edge_color = if is_selected {
+                    Color32::WHITE
+                } else {
+                    match edge.health {
+                        HealthStatus::Healthy => self.theme.synapse_base(),
+                        HealthStatus::Warning => self.theme.neuron_warning().gamma_multiply(0.7),
+                        HealthStatus::Critical => self.theme.neuron_critical().gamma_multiply(0.7),
+                    }
                 };
 
-                let width =
+                // Make selected edge thicker
+                let base_width =
                     (1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3) * self.zoom;
+                let width = if is_selected {
+                    base_width * 2.5
+                } else {
+                    base_width
+                };
 
                 // Calculate Bezier control point
                 let mid = pos_s + (pos_t - pos_s) * 0.5;
@@ -322,6 +341,9 @@ impl<'a> DrawContext<'a> {
             let color = get_neuron_color(node, activity, self.theme);
             let is_selected = self.selected_node == Some(&node.name);
             let is_highlighted = self.highlighted_node == Some(&node.name);
+            let is_edge_endpoint = self
+                .selected_edge
+                .is_some_and(|sel| sel.source_node == node.name || sel.target_node == node.name);
 
             let fire_intensity = activity.map(|a| a.fire_intensity).unwrap_or(0.0);
 
@@ -360,7 +382,7 @@ impl<'a> DrawContext<'a> {
             painter.circle_filled(pos, radius * 0.4, nucleus_color);
 
             // Selection/highlight ring
-            if is_selected || is_highlighted {
+            if is_selected || is_highlighted || is_edge_endpoint {
                 let ring_color = if is_highlighted {
                     Color32::YELLOW
                 } else {

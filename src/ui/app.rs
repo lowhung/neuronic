@@ -42,6 +42,7 @@ pub struct NeuronicApp {
 
     // Selection and interaction
     selected_node: Option<String>,
+    selected_edge: Option<SelectedEdge>,
     dragged_node: Option<String>,
     search_query: String,
     search_focused: bool,
@@ -133,6 +134,7 @@ impl NeuronicApp {
             zoom: 1.0,
             pan: Vec2::ZERO,
             selected_node: None,
+            selected_edge: None,
             dragged_node: None,
             search_query: String::new(),
             search_focused: false,
@@ -350,22 +352,32 @@ impl eframe::App for NeuronicApp {
         });
 
         // Right panel with details
+        let mut panel_clicked_edge = None;
         egui::SidePanel::right("details")
             .min_width(200.0)
             .show(ctx, |ui| {
-                panels::draw_details_panel(
+                let panel_result = panels::draw_details_panel(
                     ui,
                     &self.flow_graph,
                     &self.selected_node,
+                    &self.selected_edge,
                     &self.node_activity,
                     &self.theme,
                 );
+                if panel_result.clicked_edge.is_some() {
+                    panel_clicked_edge = panel_result.clicked_edge;
+                }
 
                 if self.show_legend {
                     ui.add_space(16.0);
                     panels::draw_legend(ui, &self.theme);
                 }
             });
+
+        // Handle edge selection from panel topic clicks
+        if let Some(edge) = panel_clicked_edge {
+            self.selected_edge = Some(edge);
+        }
 
         // Left panel for filters/groups if open
         if self.show_filter_panel || self.show_group_panel {
@@ -413,6 +425,7 @@ impl eframe::App for NeuronicApp {
 
             if let Some(clicked) = input_result.clicked_node {
                 self.selected_node = Some(clicked);
+                self.selected_edge = None; // Clear edge selection when node selected
             }
 
             // Apply layout
@@ -445,6 +458,7 @@ impl eframe::App for NeuronicApp {
                 particles: &self.synapse_particles,
                 pulse_rings: &self.pulse_rings,
                 selected_node: self.selected_node.as_ref(),
+                selected_edge: self.selected_edge.as_ref(),
                 highlighted_node: self.highlighted_node.as_ref(),
                 theme: &self.theme,
                 zoom: self.zoom,
