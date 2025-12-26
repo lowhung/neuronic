@@ -144,7 +144,7 @@ fn find_edge_by_topic_from_node(
     None
 }
 
-/// Draw edge details panel.
+/// Draw edge details panel using a stable grid layout to prevent jitter.
 fn draw_edge_details(
     ui: &mut egui::Ui,
     graph: &MessageFlowGraph,
@@ -155,53 +155,73 @@ fn draw_edge_details(
         ui.heading("Synapse Details");
         ui.separator();
 
-        ui.label(format!("Topic: {}", edge.topic));
-        ui.add_space(4.0);
+        // Use Grid for stable layout - labels won't jump around
+        egui::Grid::new("edge_details_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Topic:");
+                ui.label(&edge.topic);
+                ui.end_row();
 
-        // Source and target
-        if let Some((source, target)) = graph.graph.edge_endpoints(edge_idx) {
-            let source_name = &graph.graph[source].name;
-            let target_name = &graph.graph[target].name;
-            ui.label(format!("From: {}", source_name));
-            ui.label(format!("To: {}", target_name));
-        }
+                // Source and target
+                if let Some((source, target)) = graph.graph.edge_endpoints(edge_idx) {
+                    let source_name = &graph.graph[source].name;
+                    let target_name = &graph.graph[target].name;
+
+                    ui.label("From:");
+                    ui.label(source_name.as_str());
+                    ui.end_row();
+
+                    ui.label("To:");
+                    ui.label(target_name.as_str());
+                    ui.end_row();
+                }
+            });
 
         ui.separator();
         ui.label("Metrics:");
 
-        // Format message count nicely (1.2k for 1200)
-        let msg_count = format_count(edge.message_count);
-        ui.label(format!("Messages: {}", msg_count));
+        egui::Grid::new("edge_metrics_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .min_col_width(70.0)
+            .show(ui, |ui| {
+                // Always show all metrics with consistent layout
+                ui.label("Messages:");
+                ui.label(format_count(edge.message_count));
+                ui.end_row();
 
-        // Rate
-        if let Some(rate) = edge.rate {
-            ui.label(format!("Rate: {:.1} msg/s", rate));
-        }
+                ui.label("Rate:");
+                ui.label(match edge.rate {
+                    Some(rate) => format!("{:.1} msg/s", rate),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
 
-        // Backlog
-        if let Some(backlog) = edge.backlog {
-            let backlog_str = format_count(backlog);
-            ui.label(format!("Backlog: {}", backlog_str));
-        }
+                ui.label("Backlog:");
+                ui.label(match edge.backlog {
+                    Some(backlog) => format_count(backlog),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
 
-        // Pending time (format as ms/s)
-        if let Some(pending_us) = edge.pending_us {
-            let pending_str = format_duration_us(pending_us);
-            ui.label(format!("Pending: {}", pending_str));
-        }
+                ui.label("Pending:");
+                ui.label(match edge.pending_us {
+                    Some(pending_us) => format_duration_us(pending_us),
+                    None => "-".to_string(),
+                });
+                ui.end_row();
 
-        ui.separator();
-
-        // Health status
-        ui.horizontal(|ui| {
-            ui.label("Health:");
-            let (health_text, health_color) = match edge.health {
-                HealthStatus::Healthy => ("Healthy", theme.neuron_active()),
-                HealthStatus::Warning => ("Warning", theme.neuron_warning()),
-                HealthStatus::Critical => ("Critical", theme.neuron_critical()),
-            };
-            ui.label(egui::RichText::new(health_text).color(health_color));
-        });
+                ui.label("Health:");
+                let (health_text, health_color) = match edge.health {
+                    HealthStatus::Healthy => ("Healthy", theme.neuron_active()),
+                    HealthStatus::Warning => ("Warning", theme.neuron_warning()),
+                    HealthStatus::Critical => ("Critical", theme.neuron_critical()),
+                };
+                ui.label(egui::RichText::new(health_text).color(health_color));
+                ui.end_row();
+            });
     } else {
         ui.label("Edge not found");
     }
