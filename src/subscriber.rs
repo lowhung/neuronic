@@ -38,51 +38,34 @@ pub async fn create_subscriber(
 
     let channel = conn.create_channel().await?;
 
-    // Try to consume from an existing named queue first (caryatid creates these),
-    // otherwise create a temporary exclusive queue bound to the exchange
-    let queue_name = if channel
+    // Create a temporary exclusive queue bound to the exchange with the topic pattern
+    tracing::info!(
+        "Creating temporary queue bound to exchange: {}",
+        config.exchange
+    );
+    let queue = channel
         .queue_declare(
-            topic,
+            "",
             QueueDeclareOptions {
-                passive: true,
+                exclusive: true,
+                auto_delete: true,
                 ..Default::default()
             },
             FieldTable::default(),
         )
-        .await
-        .is_ok()
-    {
-        tracing::info!("Using existing queue: {}", topic);
-        topic.to_string()
-    } else {
-        tracing::info!(
-            "Creating temporary queue bound to exchange: {}",
-            config.exchange
-        );
-        let queue = channel
-            .queue_declare(
-                "",
-                QueueDeclareOptions {
-                    exclusive: true,
-                    auto_delete: true,
-                    ..Default::default()
-                },
-                FieldTable::default(),
-            )
-            .await?;
+        .await?;
 
-        channel
-            .queue_bind(
-                queue.name().as_str(),
-                &config.exchange,
-                topic,
-                QueueBindOptions::default(),
-                FieldTable::default(),
-            )
-            .await?;
+    channel
+        .queue_bind(
+            queue.name().as_str(),
+            &config.exchange,
+            topic,
+            QueueBindOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
 
-        queue.name().to_string()
-    };
+    let queue_name = queue.name().to_string();
 
     // Start consuming
     let mut consumer = channel
