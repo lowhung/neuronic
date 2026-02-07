@@ -57,7 +57,7 @@ impl NeuronicApp {
         );
 
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        let (sync_tx, sync_rx) = std_mpsc::channel();
+        let (sync_tx, sync_rx) = std_mpsc::sync_channel(100);
 
         let subscriber_config = neuronic_config.subscriber.clone();
         let topic_clone = topic.clone();

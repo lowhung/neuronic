@@ -12,6 +12,13 @@ use std::time::Instant;
 
 use super::types::{NodeActivity, PulseRing, SynapseParticle};
 
+/// Maximum number of synapse particles per edge to prevent memory growth.
+const MAX_PARTICLES_PER_EDGE: usize = 50;
+/// Maximum total synapse particles across all edges.
+const MAX_TOTAL_PARTICLES: usize = 5000;
+/// Maximum pulse rings per node.
+const MAX_PULSE_RINGS_PER_NODE: usize = 3;
+
 /// Update all animation states for a single frame.
 ///
 /// Called each frame to:
@@ -80,11 +87,14 @@ pub fn detect_activity(
             // Spawn pulse ring for heavy activity
             if show_pulse_rings && delta > 50 {
                 let rings = pulse_rings.entry(module_name.clone()).or_default();
-                rings.push(PulseRing {
-                    radius: 15.0,
-                    max_radius: 60.0 + (delta as f32 / 10.0).min(40.0),
-                    opacity: 1.0,
-                });
+                // Limit rings per node to prevent memory growth
+                if rings.len() < MAX_PULSE_RINGS_PER_NODE {
+                    rings.push(PulseRing {
+                        radius: 15.0,
+                        max_radius: 60.0 + (delta as f32 / 10.0).min(40.0),
+                        opacity: 1.0,
+                    });
+                }
             }
 
             // Spawn particles on outgoing edges
@@ -92,9 +102,28 @@ pub fn detect_activity(
                 for (other_name, other_metrics) in snapshot.iter() {
                     if other_metrics.reads.contains_key(topic) {
                         let key = (module_name.clone(), other_name.clone(), topic.clone());
+
+                        // Check total particle count before spawning
+                        let total_particles: usize =
+                            synapse_particles.values().map(|v| v.len()).sum();
+                        if total_particles >= MAX_TOTAL_PARTICLES {
+                            continue;
+                        }
+
                         let particles = synapse_particles.entry(key).or_default();
+
+                        // Check per-edge limit
+                        if particles.len() >= MAX_PARTICLES_PER_EDGE {
+                            continue;
+                        }
+
                         let new_particles = (delta as usize / 50).clamp(1, 5);
                         for i in 0..new_particles {
+                            // Re-check per-edge limit before each particle
+                            if particles.len() >= MAX_PARTICLES_PER_EDGE {
+                                break;
+                            }
+
                             particles.push(SynapseParticle {
                                 progress: i as f32 * 0.1,
                                 speed: 0.8 + (i as f32 * 0.1),
