@@ -16,6 +16,10 @@ Thumbs.db
 tarpaulin-report.html
 cobertura.xml
 
+# Log files
+*.log
+log_file.txt
+
 # Backup files
 *.bak
 *~

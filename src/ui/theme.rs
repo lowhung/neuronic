@@ -95,14 +95,6 @@ impl Theme {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn label(&self) -> &'static str {
-        match self {
-            Theme::Dark => "Dark",
-            Theme::Light => "Light",
-        }
-    }
-
     pub fn apply_to_egui(&self, ctx: &egui::Context) {
         let mut visuals = match self {
             Theme::Dark => egui::Visuals::dark(),
@@ -214,11 +206,5 @@ mod tests {
         // Panel fill should be slightly different from background
         assert_ne!(dark.panel_fill(), dark.background());
         assert_ne!(light.panel_fill(), light.background());
-    }
-
-    #[test]
-    fn test_label() {
-        assert_eq!(Theme::Dark.label(), "Dark");
-        assert_eq!(Theme::Light.label(), "Light");
     }
 }
