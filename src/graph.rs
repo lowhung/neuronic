@@ -1,7 +1,7 @@
 //! Graph data model for message flow visualization.
 //!
 //! Converts buswatch Snapshots into a petgraph structure suitable
-//! for rendering with egui_graphs.
+//! for rendering with egui.
 
 use buswatch_types::Snapshot;
 use petgraph::graph::{DiGraph, NodeIndex};
