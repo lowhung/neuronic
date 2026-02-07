@@ -207,5 +207,4 @@ mod tests {
         assert_ne!(dark.panel_fill(), dark.background());
         assert_ne!(light.panel_fill(), light.background());
     }
-
 }
