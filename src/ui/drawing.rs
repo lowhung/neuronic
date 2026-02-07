@@ -8,7 +8,7 @@ use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 
 use super::theme::Theme;
-use super::types::{NodeActivity, NodeGroup, PulseRing, SelectedEdge, SynapseParticle};
+use super::types::{DataRefs, NodeActivity, SelectionRefs, StyleConfig, Transform, VisualRefs};
 
 /// Calculate a point on a quadratic Bezier curve.
 ///
@@ -140,60 +140,52 @@ pub fn get_neuron_color(
 
 /// Drawing context with all state needed for rendering.
 pub struct DrawContext<'a> {
-    pub graph: &'a MessageFlowGraph,
-    pub positions: &'a HashMap<String, Pos2>,
-    pub activity: &'a HashMap<String, NodeActivity>,
-    pub particles: &'a HashMap<(String, String, String), Vec<SynapseParticle>>,
-    pub pulse_rings: &'a HashMap<String, Vec<PulseRing>>,
-    pub node_groups: &'a [NodeGroup],
-    pub selected_node: Option<&'a String>,
-    pub selected_edge: Option<&'a SelectedEdge>,
-    pub highlighted_node: Option<&'a String>,
-    pub theme: &'a Theme,
-    pub zoom: f32,
-    pub pan: Vec2,
-    pub show_labels: bool,
-    pub show_gradient_edges: bool,
-    pub show_pulse_rings: bool,
+    pub data: DataRefs<'a>,
+    pub visual: VisualRefs<'a>,
+    pub selection: SelectionRefs<'a>,
+    pub style: StyleConfig,
+    pub transform: Transform,
 }
 
 impl<'a> DrawContext<'a> {
     /// Convert world position to screen position.
     pub fn world_to_screen(&self, world_pos: Pos2, rect: Rect) -> Pos2 {
         let center = rect.center();
-        let offset = (world_pos - center) * self.zoom;
-        center + offset + self.pan
+        let offset = (world_pos - center) * self.transform.zoom;
+        center + offset + self.transform.pan
     }
 
     /// Draw the complete graph.
     pub fn draw_graph(&self, ui: &mut egui::Ui, rect: Rect) {
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, self.theme.background());
+        painter.rect_filled(rect, 0.0, self.style.theme.background());
 
         self.draw_edges(&painter, rect);
         self.draw_nodes(&painter, rect);
     }
 
     fn draw_edges(&self, painter: &egui::Painter, rect: Rect) {
-        for edge_idx in self.graph.graph.edge_indices() {
-            if let Some((source, target)) = self.graph.graph.edge_endpoints(edge_idx) {
-                let source_node = &self.graph.graph[source];
-                let target_node = &self.graph.graph[target];
-                let edge = &self.graph.graph[edge_idx];
+        for edge_idx in self.data.graph.graph.edge_indices() {
+            if let Some((source, target)) = self.data.graph.graph.edge_endpoints(edge_idx) {
+                let source_node = &self.data.graph.graph[source];
+                let target_node = &self.data.graph.graph[target];
+                let edge = &self.data.graph.graph[edge_idx];
 
                 // Check if this edge is selected
-                let is_selected = self.selected_edge.is_some_and(|sel| {
+                let is_selected = self.selection.edge.is_some_and(|sel| {
                     sel.source_node == source_node.name
                         && sel.target_node == target_node.name
                         && sel.topic == edge.topic
                 });
 
                 let world_s = self
+                    .data
                     .positions
                     .get(&source_node.name)
                     .copied()
                     .unwrap_or(rect.center());
                 let world_t = self
+                    .data
                     .positions
                     .get(&target_node.name)
                     .copied()
@@ -207,15 +199,19 @@ impl<'a> DrawContext<'a> {
                     Color32::WHITE
                 } else {
                     match edge.health {
-                        HealthStatus::Healthy => self.theme.synapse_base(),
-                        HealthStatus::Warning => self.theme.neuron_warning().gamma_multiply(0.7),
-                        HealthStatus::Critical => self.theme.neuron_critical().gamma_multiply(0.7),
+                        HealthStatus::Healthy => self.style.theme.synapse_base(),
+                        HealthStatus::Warning => {
+                            self.style.theme.neuron_warning().gamma_multiply(0.7)
+                        }
+                        HealthStatus::Critical => {
+                            self.style.theme.neuron_critical().gamma_multiply(0.7)
+                        }
                     }
                 };
 
                 // Make selected edge thicker
-                let base_width =
-                    (1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3) * self.zoom;
+                let base_width = (1.0 + (edge.rate.unwrap_or(0.0).log10().max(0.0) as f32) * 0.3)
+                    * self.transform.zoom;
                 let width = if is_selected {
                     base_width * 2.5
                 } else {
@@ -227,11 +223,11 @@ impl<'a> DrawContext<'a> {
                 let dir = (pos_t - pos_s).normalized();
                 let perp = Vec2::new(-dir.y, dir.x);
                 let distance = (pos_t - pos_s).length();
-                let curve_amount = (distance * 0.15).min(40.0 * self.zoom);
+                let curve_amount = (distance * 0.15).min(40.0 * self.transform.zoom);
                 let control = mid + perp * curve_amount;
 
                 // Draw curved edge
-                if self.show_gradient_edges {
+                if self.style.show_gradient_edges {
                     self.draw_gradient_edge(painter, pos_s, control, pos_t, edge_color, width);
                 } else {
                     let segments = 20;
@@ -245,12 +241,12 @@ impl<'a> DrawContext<'a> {
                 }
 
                 // Draw arrow
-                let node_radius = 12.0 * self.zoom;
-                let arrow_t = 1.0 - (node_radius + 8.0 * self.zoom) / distance.max(1.0);
+                let node_radius = 12.0 * self.transform.zoom;
+                let arrow_t = 1.0 - (node_radius + 8.0 * self.transform.zoom) / distance.max(1.0);
                 let arrow_pos = quadratic_bezier(pos_s, control, pos_t, arrow_t.max(0.8));
                 let arrow_dir = bezier_tangent(pos_s, control, pos_t, arrow_t.max(0.8));
                 let arrow_perp = Vec2::new(-arrow_dir.y, arrow_dir.x);
-                let arrow_size = 5.0 * self.zoom;
+                let arrow_size = 5.0 * self.transform.zoom;
                 let arrow_points = vec![
                     arrow_pos + arrow_dir * arrow_size,
                     arrow_pos + arrow_perp * arrow_size * 0.4,
@@ -268,12 +264,12 @@ impl<'a> DrawContext<'a> {
                     target_node.name.clone(),
                     edge.topic.clone(),
                 );
-                if let Some(particles) = self.particles.get(&key) {
+                if let Some(particles) = self.visual.particles.get(&key) {
                     for particle in particles {
                         let particle_pos =
                             quadratic_bezier(pos_s, control, pos_t, particle.progress);
-                        let particle_color = self.theme.synapse_active();
-                        let glow_radius = 4.0 * self.zoom;
+                        let particle_color = self.style.theme.synapse_active();
+                        let glow_radius = 4.0 * self.transform.zoom;
                         painter.circle_filled(
                             particle_pos,
                             glow_radius * 2.0,
@@ -284,14 +280,14 @@ impl<'a> DrawContext<'a> {
                 }
 
                 // Topic label
-                if self.show_labels && self.zoom > 0.5 {
+                if self.style.show_labels && self.transform.zoom > 0.5 {
                     let label_pos = quadratic_bezier(pos_s, control, pos_t, 0.5);
                     painter.text(
                         label_pos,
                         egui::Align2::CENTER_CENTER,
                         &edge.topic,
-                        egui::FontId::proportional(9.0 * self.zoom),
-                        self.theme.text_secondary(),
+                        egui::FontId::proportional(9.0 * self.transform.zoom),
+                        self.style.theme.text_secondary(),
                     );
                 }
             }
@@ -325,8 +321,9 @@ impl<'a> DrawContext<'a> {
     }
 
     fn draw_nodes(&self, painter: &egui::Painter, rect: Rect) {
-        for node in self.graph.graph.node_weights() {
+        for node in self.data.graph.graph.node_weights() {
             let world_pos = self
+                .data
                 .positions
                 .get(&node.name)
                 .copied()
@@ -334,32 +331,34 @@ impl<'a> DrawContext<'a> {
 
             let pos = self.world_to_screen(world_pos, rect);
 
-            let base_radius = 12.0 * self.zoom;
-            let radius =
-                base_radius + (node.throughput() as f32).log10().max(0.0) * 2.0 * self.zoom;
+            let base_radius = 12.0 * self.transform.zoom;
+            let radius = base_radius
+                + (node.throughput() as f32).log10().max(0.0) * 2.0 * self.transform.zoom;
 
-            let activity = self.activity.get(&node.name);
-            let color = get_neuron_color(node, activity, self.theme);
-            let is_selected = self.selected_node == Some(&node.name);
-            let is_highlighted = self.highlighted_node == Some(&node.name);
+            let activity = self.visual.activity.get(&node.name);
+            let color = get_neuron_color(node, activity, &self.style.theme);
+            let is_selected = self.selection.node == Some(&node.name);
+            let is_highlighted = self.selection.highlighted == Some(&node.name);
             let is_edge_endpoint = self
-                .selected_edge
+                .selection
+                .edge
                 .is_some_and(|sel| sel.source_node == node.name || sel.target_node == node.name);
 
             let fire_intensity = activity.map(|a| a.fire_intensity).unwrap_or(0.0);
 
             // Draw pulse rings
-            if self.show_pulse_rings {
-                if let Some(rings) = self.pulse_rings.get(&node.name) {
+            if self.style.show_pulse_rings {
+                if let Some(rings) = self.visual.pulse_rings.get(&node.name) {
                     for ring in rings {
                         let ring_color = self
+                            .style
                             .theme
                             .neuron_active()
                             .gamma_multiply(ring.opacity * 0.5);
                         painter.circle_stroke(
                             pos,
-                            ring.radius * self.zoom,
-                            Stroke::new(2.0 * self.zoom, ring_color),
+                            ring.radius * self.transform.zoom,
+                            Stroke::new(2.0 * self.transform.zoom, ring_color),
                         );
                     }
                 }
@@ -367,8 +366,9 @@ impl<'a> DrawContext<'a> {
 
             // Glow effect for active neurons
             if fire_intensity > 0.1 {
-                let glow_radius = radius + (8.0 + fire_intensity * 10.0) * self.zoom;
+                let glow_radius = radius + (8.0 + fire_intensity * 10.0) * self.transform.zoom;
                 let glow_color = self
+                    .style
                     .theme
                     .neuron_active()
                     .gamma_multiply(fire_intensity * 0.4);
@@ -383,13 +383,13 @@ impl<'a> DrawContext<'a> {
             painter.circle_filled(pos, radius * 0.4, nucleus_color);
 
             // Group color ring (drawn before selection ring)
-            for (group_idx, group) in self.node_groups.iter().enumerate() {
+            for (group_idx, group) in self.visual.node_groups.iter().enumerate() {
                 if !group.collapsed && group.nodes.contains(&node.name) {
                     let group_color = super::types::get_group_color(group_idx);
                     painter.circle_stroke(
                         pos,
-                        radius + 6.0 * self.zoom,
-                        Stroke::new(3.0 * self.zoom, group_color),
+                        radius + 6.0 * self.transform.zoom,
+                        Stroke::new(3.0 * self.transform.zoom, group_color),
                     );
                     break; // Only show first matching group
                 }
@@ -402,27 +402,31 @@ impl<'a> DrawContext<'a> {
                 } else {
                     Color32::WHITE
                 };
-                painter.circle_stroke(pos, radius + 4.0 * self.zoom, Stroke::new(2.0, ring_color));
+                painter.circle_stroke(
+                    pos,
+                    radius + 4.0 * self.transform.zoom,
+                    Stroke::new(2.0, ring_color),
+                );
             }
 
             // Node label
-            if self.zoom > 0.4 {
+            if self.transform.zoom > 0.4 {
                 painter.text(
-                    pos + Vec2::new(0.0, radius + 10.0 * self.zoom),
+                    pos + Vec2::new(0.0, radius + 10.0 * self.transform.zoom),
                     egui::Align2::CENTER_CENTER,
                     &node.name,
-                    egui::FontId::proportional(10.0 * self.zoom),
-                    self.theme.text_primary(),
+                    egui::FontId::proportional(10.0 * self.transform.zoom),
+                    self.style.theme.text_primary(),
                 );
 
                 if let Some(rate) = node.rate() {
                     let rate_text = format_rate(rate);
                     painter.text(
-                        pos + Vec2::new(0.0, radius + 22.0 * self.zoom),
+                        pos + Vec2::new(0.0, radius + 22.0 * self.transform.zoom),
                         egui::Align2::CENTER_CENTER,
                         &rate_text,
-                        egui::FontId::proportional(8.0 * self.zoom),
-                        self.theme.text_secondary(),
+                        egui::FontId::proportional(8.0 * self.transform.zoom),
+                        self.style.theme.text_secondary(),
                     );
                 }
             }

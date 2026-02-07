@@ -18,6 +18,7 @@ use super::state::{
     AnimationState, ConnectionState, FilterState, InteractionState, UIPreferences, ViewState,
 };
 use super::theme::Theme;
+use super::types::{DataRefs, SelectionRefs, StyleConfig, Transform, VisualRefs};
 
 use std::path::PathBuf;
 
@@ -432,21 +433,31 @@ impl eframe::App for NeuronicApp {
 
             // Draw the graph
             let draw_ctx = DrawContext {
-                graph: &self.connection.flow_graph,
-                positions: &self.view.node_positions,
-                activity: &self.animation.node_activity,
-                particles: &self.animation.synapse_particles,
-                pulse_rings: &self.animation.pulse_rings,
-                node_groups: &self.filters.node_groups,
-                selected_node: self.interaction.selected_node.as_ref(),
-                selected_edge: self.interaction.selected_edge.as_ref(),
-                highlighted_node: self.interaction.search.highlighted_node.as_ref(),
-                theme: &self.preferences.theme,
-                zoom: self.view.zoom,
-                pan: self.view.pan,
-                show_labels: self.preferences.show_labels,
-                show_gradient_edges: self.preferences.show_gradient_edges,
-                show_pulse_rings: self.preferences.show_pulse_rings,
+                data: DataRefs {
+                    graph: &self.connection.flow_graph,
+                    positions: &self.view.node_positions,
+                },
+                visual: VisualRefs {
+                    activity: &self.animation.node_activity,
+                    particles: &self.animation.synapse_particles,
+                    pulse_rings: &self.animation.pulse_rings,
+                    node_groups: &self.filters.node_groups,
+                },
+                selection: SelectionRefs {
+                    node: self.interaction.selected_node.as_ref(),
+                    edge: self.interaction.selected_edge.as_ref(),
+                    highlighted: self.interaction.search.highlighted_node.as_ref(),
+                },
+                style: StyleConfig {
+                    theme: self.preferences.theme,
+                    show_labels: self.preferences.show_labels,
+                    show_gradient_edges: self.preferences.show_gradient_edges,
+                    show_pulse_rings: self.preferences.show_pulse_rings,
+                },
+                transform: Transform {
+                    zoom: self.view.zoom,
+                    pan: self.view.pan,
+                },
             };
 
             draw_ctx.draw_graph(ui, rect);
