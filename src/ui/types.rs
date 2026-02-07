@@ -1,7 +1,11 @@
 //! Common types used across UI modules.
 
-use egui::Color32;
+use crate::graph::MessageFlowGraph;
+use egui::{Color32, Pos2, Vec2};
+use std::collections::HashMap;
 use std::time::Instant;
+
+use super::theme::Theme;
 
 /// Layout mode for the graph.
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -75,4 +79,41 @@ pub struct SelectedEdge {
     pub source_node: String,
     pub target_node: String,
     pub topic: String,
+}
+
+/// Grouped graph data references for rendering.
+pub struct DataRefs<'a> {
+    pub graph: &'a MessageFlowGraph,
+    pub positions: &'a HashMap<String, Pos2>,
+}
+
+/// Grouped animation/visual effect references for rendering.
+pub struct VisualRefs<'a> {
+    pub activity: &'a HashMap<String, NodeActivity>,
+    pub particles: &'a HashMap<(String, String, String), Vec<SynapseParticle>>,
+    pub pulse_rings: &'a HashMap<String, Vec<PulseRing>>,
+    pub node_groups: &'a [NodeGroup],
+}
+
+/// Grouped selection state references for rendering.
+pub struct SelectionRefs<'a> {
+    pub node: Option<&'a String>,
+    pub edge: Option<&'a SelectedEdge>,
+    pub highlighted: Option<&'a String>,
+}
+
+/// Style configuration for rendering (all Copy/Clone types, owned).
+#[derive(Clone)]
+pub struct StyleConfig {
+    pub theme: Theme,
+    pub show_labels: bool,
+    pub show_gradient_edges: bool,
+    pub show_pulse_rings: bool,
+}
+
+/// Camera transform for world-to-screen conversion.
+#[derive(Clone, Copy)]
+pub struct Transform {
+    pub zoom: f32,
+    pub pan: Vec2,
 }
