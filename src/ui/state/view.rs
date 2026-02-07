@@ -3,6 +3,7 @@
 use egui::{Pos2, Vec2};
 use std::collections::HashMap;
 
+use crate::ui::layout::ForceLayoutConfig;
 use crate::ui::types::LayoutMode;
 
 /// State related to the graph view and camera.
@@ -13,6 +14,8 @@ pub struct ViewState {
     pub node_velocities: HashMap<String, Vec2>,
     /// Current layout algorithm mode.
     pub layout_mode: LayoutMode,
+    /// Configuration for force-directed layout physics.
+    pub layout_config: ForceLayoutConfig,
     /// Current zoom level (1.0 = 100%).
     pub zoom: f32,
     /// Current pan offset from center.
@@ -25,6 +28,7 @@ impl Default for ViewState {
             node_positions: HashMap::new(),
             node_velocities: HashMap::new(),
             layout_mode: LayoutMode::default(),
+            layout_config: ForceLayoutConfig::default(),
             zoom: 1.0,
             pan: Vec2::ZERO,
         }
