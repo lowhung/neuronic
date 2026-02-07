@@ -12,6 +12,56 @@ use std::collections::HashMap;
 
 use super::types::{LayoutMode, NodeGroup};
 
+/// Configuration for force-directed layout physics simulation.
+///
+/// These parameters control the physics simulation used to position nodes in the graph.
+/// Tuning these values affects how nodes organize themselves and how quickly the layout stabilizes.
+#[derive(Clone, Debug)]
+pub struct ForceLayoutConfig {
+    /// Repulsion force strength between all nodes (prevents overlap).
+    /// Higher values push nodes further apart.
+    /// Default: 50,000.0
+    pub repulsion: f32,
+
+    /// Attraction force strength along edges (clusters connected modules).
+    /// Higher values pull connected nodes closer together.
+    /// Default: 0.002
+    pub attraction: f32,
+
+    /// Velocity damping factor (stabilizes the simulation).
+    /// Values between 0 and 1. Lower values slow down movement more quickly.
+    /// Default: 0.85
+    pub damping: f32,
+
+    /// Minimum desired distance between nodes.
+    /// Nodes closer than this experience stronger repulsion.
+    /// Default: 120.0
+    pub min_distance: f32,
+
+    /// Center gravity strength (keeps graph from drifting).
+    /// Gentle force pulling all nodes toward the center.
+    /// Default: 0.0005
+    pub center_gravity: f32,
+
+    /// Group attraction strength (clusters nodes in same group).
+    /// Additional force for nodes that share a group.
+    /// Default: 0.001
+    pub group_attraction: f32,
+}
+
+impl Default for ForceLayoutConfig {
+    fn default() -> Self {
+        Self {
+            repulsion: 50_000.0,
+            attraction: 0.002,
+            damping: 0.85,
+            min_distance: 120.0,
+            center_gravity: 0.0005,
+            group_attraction: 0.001,
+        }
+    }
+}
+
 /// Apply force-directed layout to node positions.
 ///
 /// Uses a physics simulation where:
@@ -22,6 +72,7 @@ use super::types::{LayoutMode, NodeGroup};
 /// Node positions are updated incrementally each frame, with velocity
 /// damping to eventually reach a stable state.
 pub fn apply_force_directed(
+    config: &ForceLayoutConfig,
     graph: &MessageFlowGraph,
     positions: &mut HashMap<String, Pos2>,
     velocities: &mut HashMap<String, Vec2>,
@@ -47,11 +98,6 @@ pub fn apply_force_directed(
         }
     }
 
-    let repulsion = 50000.0;
-    let attraction = 0.002;
-    let damping = 0.85;
-    let min_distance = 120.0;
-
     let mut forces: HashMap<String, Vec2> = HashMap::new();
 
     for node in graph.graph.node_weights() {
@@ -68,10 +114,10 @@ pub fn apply_force_directed(
             let delta = pos_i - pos_j;
             let dist = delta.length().max(1.0);
 
-            let repulsion_force = if dist < min_distance {
-                delta.normalized() * (repulsion / (dist * dist)) * 2.0
+            let repulsion_force = if dist < config.min_distance {
+                delta.normalized() * (config.repulsion / (dist * dist)) * 2.0
             } else {
-                delta.normalized() * (repulsion / (dist * dist))
+                delta.normalized() * (config.repulsion / (dist * dist))
             };
 
             if let Some(force) = forces.get_mut(&nodes[i].name) {
@@ -99,8 +145,8 @@ pub fn apply_force_directed(
             let delta = pos_t - pos_s;
             let dist = delta.length();
 
-            if dist > min_distance * 1.5 {
-                let force = delta.normalized() * (dist - min_distance) * attraction;
+            if dist > config.min_distance * 1.5 {
+                let force = delta.normalized() * (dist - config.min_distance) * config.attraction;
                 if let Some(f) = forces.get_mut(&source_node.name) {
                     *f += force;
                 } else {
@@ -122,7 +168,6 @@ pub fn apply_force_directed(
     }
 
     // Group attraction - nodes in same group attract each other
-    let group_attraction = 0.001;
     for group in groups {
         if group.collapsed {
             continue; // Don't apply forces for collapsed groups
@@ -137,9 +182,10 @@ pub fn apply_force_directed(
                     let delta = pos_j - pos_i;
                     let dist = delta.length();
 
-                    if dist > min_distance * 0.5 {
-                        let force =
-                            delta.normalized() * (dist - min_distance * 0.5) * group_attraction;
+                    if dist > config.min_distance * 0.5 {
+                        let force = delta.normalized()
+                            * (dist - config.min_distance * 0.5)
+                            * config.group_attraction;
                         if let Some(f) = forces.get_mut(name_i) {
                             *f += force;
                         }
@@ -157,7 +203,7 @@ pub fn apply_force_directed(
         let pos = positions.get(&node.name).copied().unwrap_or(center);
         let to_center = center - pos;
         if let Some(force) = forces.get_mut(&node.name) {
-            *force += to_center * 0.0005;
+            *force += to_center * config.center_gravity;
         } else {
             tracing::warn!("Layout: missing force vector for node '{}'", node.name);
         }
@@ -168,7 +214,7 @@ pub fn apply_force_directed(
         let force = forces.get(&node.name).copied().unwrap_or(Vec2::ZERO);
         let vel = velocities.entry(node.name.clone()).or_insert(Vec2::ZERO);
 
-        *vel = (*vel + force * 0.016) * damping;
+        *vel = (*vel + force * 0.016) * config.damping;
 
         if let Some(pos) = positions.get_mut(&node.name) {
             *pos += *vel;
@@ -255,6 +301,7 @@ pub fn apply_hierarchical(
 /// to position nodes according to the selected [`LayoutMode`].
 pub fn apply_layout(
     mode: LayoutMode,
+    config: &ForceLayoutConfig,
     graph: &MessageFlowGraph,
     positions: &mut HashMap<String, Pos2>,
     velocities: &mut HashMap<String, Vec2>,
@@ -263,7 +310,7 @@ pub fn apply_layout(
 ) {
     match mode {
         LayoutMode::ForceDirected => {
-            apply_force_directed(graph, positions, velocities, rect, groups)
+            apply_force_directed(config, graph, positions, velocities, rect, groups)
         }
         LayoutMode::Hierarchical => apply_hierarchical(graph, positions, rect),
     }
@@ -280,12 +327,13 @@ mod tests {
 
     #[test]
     fn test_force_directed_empty_graph() {
+        let config = ForceLayoutConfig::default();
         let graph = MessageFlowGraph::new();
         let mut positions = HashMap::new();
         let mut velocities = HashMap::new();
         let rect = create_test_rect();
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
+        apply_force_directed(&config, &graph, &mut positions, &mut velocities, rect, &[]);
 
         assert!(positions.is_empty());
         assert!(velocities.is_empty());
@@ -293,6 +341,7 @@ mod tests {
 
     #[test]
     fn test_force_directed_initializes_positions() {
+        let config = ForceLayoutConfig::default();
         let mut graph = MessageFlowGraph::new();
         let snapshot = Snapshot::builder()
             .module("node1", |m| m.write("topic", |w| w.count(10)))
@@ -304,7 +353,7 @@ mod tests {
         let mut velocities = HashMap::new();
         let rect = create_test_rect();
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
+        apply_force_directed(&config, &graph, &mut positions, &mut velocities, rect, &[]);
 
         // Should have positions for both nodes
         assert_eq!(positions.len(), 2);
@@ -321,6 +370,7 @@ mod tests {
 
     #[test]
     fn test_force_directed_preserves_existing_positions() {
+        let config = ForceLayoutConfig::default();
         let mut graph = MessageFlowGraph::new();
         let snapshot = Snapshot::builder()
             .module("node1", |m| m.write("topic", |w| w.count(10)))
@@ -335,7 +385,7 @@ mod tests {
 
         let original_pos = positions["node1"];
 
-        apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
+        apply_force_directed(&config, &graph, &mut positions, &mut velocities, rect, &[]);
 
         // Position should have changed due to center gravity, but not be reinitialized
         // (it should still exist and be near the original)
@@ -349,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_force_directed_nodes_repel() {
+        let config = ForceLayoutConfig::default();
         let mut graph = MessageFlowGraph::new();
         // Create two unconnected nodes
         let snapshot = Snapshot::builder()
@@ -368,7 +419,7 @@ mod tests {
 
         // Run several iterations
         for _ in 0..10 {
-            apply_force_directed(&graph, &mut positions, &mut velocities, rect, &[]);
+            apply_force_directed(&config, &graph, &mut positions, &mut velocities, rect, &[]);
         }
 
         // Nodes should have moved apart
@@ -507,6 +558,7 @@ mod tests {
 
     #[test]
     fn test_apply_layout_dispatches_correctly() {
+        let config = ForceLayoutConfig::default();
         let mut graph = MessageFlowGraph::new();
         let snapshot = Snapshot::builder()
             .module("node1", |m| m.write("topic", |w| w.count(10)))
@@ -520,6 +572,7 @@ mod tests {
         // Test ForceDirected mode
         apply_layout(
             LayoutMode::ForceDirected,
+            &config,
             &graph,
             &mut positions,
             &mut velocities,
@@ -534,6 +587,7 @@ mod tests {
         velocities.clear();
         apply_layout(
             LayoutMode::Hierarchical,
+            &config,
             &graph,
             &mut positions,
             &mut velocities,

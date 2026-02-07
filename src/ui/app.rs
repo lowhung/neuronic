@@ -411,6 +411,7 @@ impl eframe::App for NeuronicApp {
             // Apply layout
             layout::apply_layout(
                 self.view.layout_mode,
+                &self.view.layout_config,
                 &self.connection.flow_graph,
                 &mut self.view.node_positions,
                 &mut self.view.node_velocities,

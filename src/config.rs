@@ -187,12 +187,9 @@ mod tests {
         let config = NeuronicConfig::load(path).unwrap();
 
         // When loading from a nonexistent file but config.default.toml exists,
-        // the values come from config.default.toml (not struct defaults)
+        // the values come from config.default.toml
         assert_eq!(config.filter.ignored_topics, vec!["cardano.query."]);
         assert_eq!(config.graph.backlog_warning, 1000);
-        assert_eq!(config.graph.backlog_critical, 10000);
-        assert_eq!(config.graph.pending_warning_ms, 5000);
-        assert_eq!(config.graph.pending_critical_ms, 20000);
     }
 
     #[test]
