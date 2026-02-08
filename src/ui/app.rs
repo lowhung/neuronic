@@ -18,7 +18,7 @@ use super::state::{
     AnimationState, ConnectionState, FilterState, InteractionState, UIPreferences, ViewState,
 };
 use super::theme::Theme;
-use super::types::{DataRefs, SelectionRefs, StyleConfig, Transform, VisualRefs};
+use super::types::{DataRefs, PanelAction, SelectionRefs, StyleConfig, Transform, VisualRefs};
 
 use std::path::PathBuf;
 
@@ -337,8 +337,8 @@ impl eframe::App for NeuronicApp {
                     &self.animation.node_activity,
                     &self.preferences.theme,
                 );
-                if panel_result.clicked_edge.is_some() {
-                    panel_clicked_edge = panel_result.clicked_edge;
+                if let Some(PanelAction::SelectEdge(edge)) = panel_result.action {
+                    panel_clicked_edge = Some(edge);
                 }
 
                 if self.preferences.show_legend {
@@ -364,11 +364,12 @@ impl eframe::App for NeuronicApp {
                 .min_width(180.0)
                 .show(ctx, |ui| {
                     if self.preferences.show_filter_panel {
-                        if panels::draw_filter_panel(
+                        let filter_result = panels::draw_filter_panel(
                             ui,
                             &mut self.filters.topic_filters,
                             &mut self.filters.new_filter,
-                        ) {
+                        );
+                        if filter_result.changed {
                             // Filters changed - update graph's ignored topics
                             self.connection.flow_graph.ignored_topic_prefixes =
                                 self.filters.topic_filters.clone();

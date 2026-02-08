@@ -12,12 +12,9 @@ use egui::{Color32, Vec2};
 
 use super::drawing::format_rate;
 use super::theme::Theme;
-use super::types::{get_group_color, NodeActivity, NodeGroup, SelectedEdge};
-
-/// Result from the details panel indicating which edge (if any) was clicked.
-pub struct DetailsPanelResult {
-    pub clicked_edge: Option<SelectedEdge>,
-}
+use super::types::{
+    get_group_color, NodeActivity, NodeGroup, PanelAction, PanelResult, SelectedEdge,
+};
 
 /// Draw the details panel showing information about the selected node or edge.
 ///
@@ -33,8 +30,8 @@ pub fn draw_details_panel(
     selected_edge: &Option<SelectedEdge>,
     node_activity: &std::collections::HashMap<String, NodeActivity>,
     theme: &Theme,
-) -> DetailsPanelResult {
-    let mut result = DetailsPanelResult { clicked_edge: None };
+) -> PanelResult {
+    let mut result = PanelResult::unchanged();
 
     // Show edge details if an edge is selected
     if let Some(edge) = selected_edge {
@@ -74,11 +71,11 @@ pub fn draw_details_panel(
                 // Find the source node for this input topic
                 if let Some(source_name) = find_source_node_for_topic(graph, topic, name) {
                     if ui.link(format!("  <- {}", topic)).clicked() {
-                        result.clicked_edge = Some(SelectedEdge {
+                        result = PanelResult::with_action(PanelAction::SelectEdge(SelectedEdge {
                             source_node: source_name,
                             target_node: name.clone(),
                             topic: topic.clone(),
-                        });
+                        }));
                     }
                 } else {
                     ui.label(format!("  <- {}", topic));
@@ -91,11 +88,11 @@ pub fn draw_details_panel(
                 // Find the target node for this output topic
                 if let Some(target_name) = find_target_node_for_topic(graph, topic, name) {
                     if ui.link(format!("  -> {}", topic)).clicked() {
-                        result.clicked_edge = Some(SelectedEdge {
+                        result = PanelResult::with_action(PanelAction::SelectEdge(SelectedEdge {
                             source_node: name.clone(),
                             target_node: target_name,
                             topic: topic.clone(),
-                        });
+                        }));
                     }
                 } else {
                     ui.label(format!("  -> {}", topic));
@@ -276,7 +273,7 @@ fn format_duration_us(us: u64) -> String {
 ///
 /// Shows color meanings for health status, and explains controls
 /// for interacting with the graph.
-pub fn draw_legend(ui: &mut egui::Ui, theme: &Theme) {
+pub fn draw_legend(ui: &mut egui::Ui, theme: &Theme) -> PanelResult {
     ui.heading("Legend");
     ui.separator();
 
@@ -305,6 +302,8 @@ pub fn draw_legend(ui: &mut egui::Ui, theme: &Theme) {
     ui.label("  Drag: Pan");
     ui.label("  Click: Select node");
     ui.label("  Ctrl+F: Search");
+
+    PanelResult::unchanged()
 }
 
 fn draw_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
@@ -316,9 +315,9 @@ fn draw_legend_item(ui: &mut egui::Ui, color: Color32, label: &str) {
 }
 
 /// Draw a legend for active node groups.
-pub fn draw_group_legend(ui: &mut egui::Ui, groups: &[NodeGroup]) {
+pub fn draw_group_legend(ui: &mut egui::Ui, groups: &[NodeGroup]) -> PanelResult {
     if groups.is_empty() {
-        return;
+        return PanelResult::unchanged();
     }
 
     ui.heading("Groups");
@@ -338,17 +337,19 @@ pub fn draw_group_legend(ui: &mut egui::Ui, groups: &[NodeGroup]) {
             ui.label(status);
         });
     }
+
+    PanelResult::unchanged()
 }
 
 /// Draw the topic filter panel for hiding noisy topics.
 ///
-/// Returns `true` if filters were modified, indicating the graph
+/// Returns a result indicating if filters were modified, which means the graph
 /// should be updated.
 pub fn draw_filter_panel(
     ui: &mut egui::Ui,
     filters: &mut Vec<String>,
     new_filter: &mut String,
-) -> bool {
+) -> PanelResult {
     let mut changed = false;
 
     ui.heading("Topic Filters");
@@ -392,7 +393,11 @@ pub fn draw_filter_panel(
         }
     });
 
-    changed
+    if changed {
+        PanelResult::changed()
+    } else {
+        PanelResult::unchanged()
+    }
 }
 
 /// Draw the node grouping panel for organizing nodes by patterns.
@@ -404,7 +409,7 @@ pub fn draw_group_panel(
     groups: &mut Vec<NodeGroup>,
     new_pattern: &mut String,
     graph: &MessageFlowGraph,
-) {
+) -> PanelResult {
     ui.heading("Node Groups");
     ui.separator();
 
@@ -454,4 +459,6 @@ pub fn draw_group_panel(
             *new_pattern = "-validator".to_string();
         }
     });
+
+    PanelResult::unchanged()
 }

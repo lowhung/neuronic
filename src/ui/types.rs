@@ -81,6 +81,40 @@ pub struct SelectedEdge {
     pub topic: String,
 }
 
+/// Result from drawing a panel, indicating any user actions.
+#[derive(Default)]
+pub struct PanelResult {
+    /// Whether panel state was modified (requires graph update, etc.)
+    pub changed: bool,
+    /// User action to be handled by the app.
+    pub action: Option<PanelAction>,
+}
+
+/// Actions that can be triggered from panels.
+pub enum PanelAction {
+    SelectEdge(SelectedEdge),
+}
+
+impl PanelResult {
+    pub fn unchanged() -> Self {
+        Self::default()
+    }
+
+    pub fn changed() -> Self {
+        Self {
+            changed: true,
+            action: None,
+        }
+    }
+
+    pub fn with_action(action: PanelAction) -> Self {
+        Self {
+            changed: false,
+            action: Some(action),
+        }
+    }
+}
+
 /// Grouped graph data references for rendering.
 pub struct DataRefs<'a> {
     pub graph: &'a MessageFlowGraph,
