@@ -462,3 +462,41 @@ pub fn draw_group_panel(
 
     PanelResult::unchanged()
 }
+
+/// Draw the cycle detection panel showing detected cycles in the graph.
+pub fn draw_cycle_panel(ui: &mut egui::Ui, graph: &MessageFlowGraph, theme: &Theme) {
+    ui.heading("Cycle Detection");
+    ui.separator();
+
+    let cycles = graph.detect_cycles();
+
+    if cycles.is_empty() {
+        ui.label("No cycles detected");
+        ui.label("The message flow graph is acyclic (DAG)");
+        return;
+    }
+
+    ui.label(format!("{} cycle(s) detected:", cycles.len()));
+    ui.add_space(4.0);
+
+    for (i, cycle) in cycles.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("Cycle {}", i + 1))
+                    .color(theme.neuron_warning())
+                    .strong(),
+            );
+            ui.label(format!("({} nodes)", cycle.len()));
+        });
+
+        for (j, node) in cycle.iter().enumerate() {
+            let arrow = if j < cycle.len() - 1 {
+                " ->"
+            } else {
+                " -> (back to start)"
+            };
+            ui.label(format!("  {}{}", node, arrow));
+        }
+        ui.add_space(4.0);
+    }
+}

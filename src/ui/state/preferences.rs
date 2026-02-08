@@ -12,6 +12,8 @@ pub struct UIPreferences {
     pub show_filter_panel: bool,
     /// Show the group panel.
     pub show_group_panel: bool,
+    /// Show the cycle detection panel.
+    pub show_cycle_panel: bool,
     /// Use gradient coloring on edges.
     pub show_gradient_edges: bool,
     /// Show expanding pulse rings on active nodes.
@@ -31,6 +33,7 @@ impl Default for UIPreferences {
             show_legend: true,
             show_filter_panel: false,
             show_group_panel: false,
+            show_cycle_panel: false,
             show_gradient_edges: false,
             show_pulse_rings: true,
             show_minimap: false,

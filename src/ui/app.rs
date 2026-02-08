@@ -249,6 +249,9 @@ impl NeuronicApp {
             if ui.button("Groups").clicked() {
                 self.preferences.show_group_panel = !self.preferences.show_group_panel;
             }
+            if ui.button("Cycles").clicked() {
+                self.preferences.show_cycle_panel = !self.preferences.show_cycle_panel;
+            }
 
             ui.separator();
 
@@ -358,8 +361,11 @@ impl eframe::App for NeuronicApp {
             self.interaction.selected_edge = Some(edge);
         }
 
-        // Left panel for filters/groups if open
-        if self.preferences.show_filter_panel || self.preferences.show_group_panel {
+        // Left panel for filters/groups/cycles if open
+        if self.preferences.show_filter_panel
+            || self.preferences.show_group_panel
+            || self.preferences.show_cycle_panel
+        {
             egui::SidePanel::left("left_panel")
                 .min_width(180.0)
                 .show(ctx, |ui| {
@@ -383,6 +389,15 @@ impl eframe::App for NeuronicApp {
                             &mut self.filters.node_groups,
                             &mut self.filters.new_group_pattern,
                             &self.connection.flow_graph,
+                        );
+                        ui.add_space(16.0);
+                    }
+
+                    if self.preferences.show_cycle_panel {
+                        panels::draw_cycle_panel(
+                            ui,
+                            &self.connection.flow_graph,
+                            &self.preferences.theme,
                         );
                     }
                 });
