@@ -20,6 +20,8 @@ pub struct UIPreferences {
     pub show_minimap: bool,
     /// Pause snapshot processing.
     pub paused: bool,
+    /// Enable audio feedback for graph events.
+    pub sound_enabled: bool,
     /// Current color theme.
     pub theme: Theme,
 }
@@ -35,6 +37,7 @@ impl Default for UIPreferences {
             show_pulse_rings: true,
             show_minimap: false,
             paused: false,
+            sound_enabled: false,
             theme: Theme::Dark,
         }
     }
