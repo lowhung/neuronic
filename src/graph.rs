@@ -4,7 +4,9 @@
 //! for rendering with egui.
 
 use buswatch_types::Snapshot;
+use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -461,6 +463,53 @@ impl MessageFlowGraph {
             .filter(|n| n.health == HealthStatus::Critical)
             .collect()
     }
+
+    /// Detect all cycles in the message flow graph.
+    /// Returns a list of cycles, where each cycle is a list of module names.
+    /// Only returns strongly connected components with more than one node.
+    pub fn detect_cycles(&self) -> Vec<Vec<String>> {
+        let sccs = tarjan_scc(&self.graph);
+        sccs.into_iter()
+            .filter(|scc| scc.len() > 1)
+            .map(|scc| {
+                scc.into_iter()
+                    .map(|idx| self.graph[idx].name.clone())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Check if a node participates in any cycle.
+    pub fn is_in_cycle(&self, module_name: &str) -> bool {
+        let cycles = self.detect_cycles();
+        cycles
+            .iter()
+            .any(|cycle| cycle.contains(&module_name.to_string()))
+    }
+
+    /// Get edges that form part of a cycle.
+    /// Returns edge keys (source, target, topic) for edges where both endpoints are in the same SCC.
+    pub fn cycle_edges(&self) -> Vec<(String, String, String)> {
+        let sccs = tarjan_scc(&self.graph);
+        let mut cycle_edge_list = Vec::new();
+
+        for scc in sccs.iter().filter(|s| s.len() > 1) {
+            let scc_set: std::collections::HashSet<_> = scc.iter().copied().collect();
+            for &node_idx in scc {
+                for edge_idx in self.graph.edges(node_idx) {
+                    if scc_set.contains(&edge_idx.target()) {
+                        cycle_edge_list.push((
+                            self.graph[edge_idx.source()].name.clone(),
+                            self.graph[edge_idx.target()].name.clone(),
+                            edge_idx.weight().topic.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        cycle_edge_list
+    }
 }
 
 impl Default for MessageFlowGraph {
@@ -538,5 +587,102 @@ mod tests {
 
         assert!(graph.has_critical_modules());
         assert_eq!(graph.critical_modules().len(), 1);
+    }
+
+    #[test]
+    fn test_no_cycles_in_linear_graph() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("a", |m| m.write("topic1", |w| w.count(10)))
+            .module("b", |m| {
+                m.read("topic1", |r| r.count(10))
+                    .write("topic2", |w| w.count(5))
+            })
+            .module("c", |m| m.read("topic2", |r| r.count(5)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        assert!(graph.detect_cycles().is_empty());
+    }
+
+    #[test]
+    fn test_detect_simple_cycle() {
+        let mut graph = MessageFlowGraph::new();
+        // Create cycle: a -> b -> a
+        let snapshot = Snapshot::builder()
+            .module("a", |m| {
+                m.write("topic1", |w| w.count(10))
+                    .read("topic2", |r| r.count(5))
+            })
+            .module("b", |m| {
+                m.read("topic1", |r| r.count(10))
+                    .write("topic2", |w| w.count(5))
+            })
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let cycles = graph.detect_cycles();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 2);
+        assert!(cycles[0].contains(&"a".to_string()));
+        assert!(cycles[0].contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn test_detect_three_node_cycle() {
+        let mut graph = MessageFlowGraph::new();
+        // Create cycle: a -> b -> c -> a
+        let snapshot = Snapshot::builder()
+            .module("a", |m| {
+                m.write("t1", |w| w.count(10)).read("t3", |r| r.count(5))
+            })
+            .module("b", |m| {
+                m.read("t1", |r| r.count(10)).write("t2", |w| w.count(5))
+            })
+            .module("c", |m| {
+                m.read("t2", |r| r.count(5)).write("t3", |w| w.count(5))
+            })
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let cycles = graph.detect_cycles();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 3);
+    }
+
+    #[test]
+    fn test_is_in_cycle() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("a", |m| {
+                m.write("t1", |w| w.count(10)).read("t2", |r| r.count(5))
+            })
+            .module("b", |m| {
+                m.read("t1", |r| r.count(10)).write("t2", |w| w.count(5))
+            })
+            .module("c", |m| m.read("t1", |r| r.count(10)))
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        assert!(graph.is_in_cycle("a"));
+        assert!(graph.is_in_cycle("b"));
+        assert!(!graph.is_in_cycle("c"));
+    }
+
+    #[test]
+    fn test_cycle_edges() {
+        let mut graph = MessageFlowGraph::new();
+        let snapshot = Snapshot::builder()
+            .module("a", |m| {
+                m.write("t1", |w| w.count(10)).read("t2", |r| r.count(5))
+            })
+            .module("b", |m| {
+                m.read("t1", |r| r.count(10)).write("t2", |w| w.count(5))
+            })
+            .build();
+        graph.update_from_snapshot(&snapshot);
+
+        let edges = graph.cycle_edges();
+        assert_eq!(edges.len(), 2); // a->b via t1 and b->a via t2
     }
 }
