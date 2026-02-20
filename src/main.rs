@@ -54,5 +54,7 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| Ok(Box::new(NeuronicApp::new(cc, args.config, args.topic)))),
     )
-    .map_err(|e| anyhow::anyhow!("eframe error: {}", e))
+    .map_err(|e| {
+        anyhow::anyhow!("GUI startup failed ({}). App will exit; check graphics drivers and windowing environment.", e)
+    })
 }

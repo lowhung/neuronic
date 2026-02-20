@@ -43,7 +43,10 @@ pub struct NeuronicApp {
 impl NeuronicApp {
     pub fn new(cc: &eframe::CreationContext<'_>, config_path: PathBuf, topic: String) -> Self {
         let neuronic_config = NeuronicConfig::load(&config_path).unwrap_or_else(|e| {
-            tracing::warn!("Failed to load config: {}, using defaults", e);
+            tracing::warn!(
+                "Config load failed ({}). Using defaults; check config path and TOML syntax.",
+                e
+            );
             NeuronicConfig::default()
         });
 
@@ -77,7 +80,10 @@ impl NeuronicApp {
                     (true, None)
                 }
                 Err(e) => {
-                    tracing::error!("Failed to connect to RabbitMQ: {}", e);
+                    tracing::error!(
+                        "RabbitMQ connection failed ({}). Live updates disabled; verify broker is running, URL/credentials, and network access.",
+                        e
+                    );
                     (false, Some(e.to_string()))
                 }
             }

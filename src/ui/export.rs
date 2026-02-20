@@ -183,7 +183,10 @@ pub fn show_export_dialog(
                 .save_file()
             {
                 if let Err(e) = export_to_svg(&path, graph, positions, theme, 1280.0, 800.0) {
-                    tracing::error!("Failed to export SVG: {}", e);
+                    tracing::error!(
+                        "SVG export failed ({}). File not written; choose a writable path and verify disk space.",
+                        e
+                    );
                 } else {
                     tracing::info!("Exported graph to {:?}", path);
                 }

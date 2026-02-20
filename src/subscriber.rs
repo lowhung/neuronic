@@ -34,7 +34,9 @@ pub async fn create_subscriber(
     // Connect to RabbitMQ
     let conn = Connection::connect(&config.url, ConnectionProperties::default())
         .await
-        .context("Failed to connect to RabbitMQ")?;
+        .context(
+            "RabbitMQ connection failed; no snapshots will be received. Check broker URL, credentials, and network.",
+        )?;
 
     let channel = conn.create_channel().await?;
 
@@ -96,11 +98,17 @@ pub async fn create_subscriber(
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to deserialize snapshot: {}", e);
+                        tracing::warn!(
+                            "Snapshot decode failed ({}). Dropping message; ensure producer schema matches `buswatch_types`.",
+                            e
+                        );
                     }
                 },
                 Err(e) => {
-                    tracing::error!("Consumer error: {}", e);
+                    tracing::error!(
+                        "RabbitMQ consumer error ({}). Stopping consumption; check broker connectivity and queue permissions.",
+                        e
+                    );
                     break;
                 }
             }
