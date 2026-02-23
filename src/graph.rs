@@ -182,10 +182,12 @@ impl RateTracker {
 
     /// Remove tracked edge state for modules no longer present in the graph.
     fn prune_stale_modules(&mut self, active_modules: &HashSet<String>) {
-        self.prev_counts
-            .retain(|(source, target, _), _| active_modules.contains(source) && active_modules.contains(target));
-        self.smoothed_rates
-            .retain(|(source, target, _), _| active_modules.contains(source) && active_modules.contains(target));
+        self.prev_counts.retain(|(source, target, _), _| {
+            active_modules.contains(source) && active_modules.contains(target)
+        });
+        self.smoothed_rates.retain(|(source, target, _), _| {
+            active_modules.contains(source) && active_modules.contains(target)
+        });
     }
 }
 
@@ -255,7 +257,8 @@ impl MessageFlowGraph {
         let elapsed_secs = self.rate_tracker.elapsed_secs(now);
         let mut graph = DiGraph::new();
         let mut module_indices = HashMap::new();
-        let active_modules: HashSet<String> = snapshot.iter().map(|(name, _)| name.clone()).collect();
+        let active_modules: HashSet<String> =
+            snapshot.iter().map(|(name, _)| name.clone()).collect();
 
         // First pass: create/update all module nodes
         for (module_name, metrics) in snapshot.iter() {
@@ -304,8 +307,7 @@ impl MessageFlowGraph {
 
         // Second pass: create edges based on topic connections
         // For each topic, connect producers to consumers
-        let mut topic_producers: HashMap<String, Vec<(String, u64, Option<f64>)>> =
-            HashMap::new();
+        let mut topic_producers: HashMap<String, Vec<(String, u64, Option<f64>)>> = HashMap::new();
         #[allow(clippy::type_complexity)]
         let mut topic_consumers: HashMap<
             String,
@@ -355,11 +357,7 @@ impl MessageFlowGraph {
 
                         // Use provided rate, or infer from count delta with smoothing
                         let rate = (*write_rate).or(*read_rate).or_else(|| {
-                            let key = (
-                                producer_name.clone(),
-                                consumer_name.clone(),
-                                topic.clone(),
-                            );
+                            let key = (producer_name.clone(), consumer_name.clone(), topic.clone());
                             self.rate_tracker
                                 .calculate_rate(key, message_count, elapsed_secs)
                         });
