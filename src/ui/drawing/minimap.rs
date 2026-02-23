@@ -77,8 +77,7 @@ pub fn draw_minimap(
     }
 
     // Draw viewport rectangle
-    let viewport_center = viewport_rect.center();
-    let viewport_world_center = Pos2::new(viewport_center.x - pan.x, viewport_center.y - pan.y);
+    let viewport_world_center = viewport_center_in_world(viewport_rect, zoom, pan);
 
     let viewport_world_size =
         Vec2::new(viewport_rect.width() / zoom, viewport_rect.height() / zoom);
@@ -100,4 +99,30 @@ pub fn draw_minimap(
         Stroke::new(1.0, Color32::WHITE.gamma_multiply(0.5)),
         egui::StrokeKind::Outside,
     );
+}
+
+fn viewport_center_in_world(viewport_rect: Rect, zoom: f32, pan: Vec2) -> Pos2 {
+    let viewport_center = viewport_rect.center();
+    let safe_zoom = zoom.max(f32::EPSILON);
+    Pos2::new(
+        viewport_center.x - pan.x / safe_zoom,
+        viewport_center.y - pan.y / safe_zoom,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_viewport_center_in_world_applies_zoom_to_pan() {
+        let rect = Rect::from_center_size(Pos2::new(400.0, 300.0), Vec2::new(800.0, 600.0));
+        let zoom = 2.0;
+        let pan = Vec2::new(100.0, 50.0);
+
+        let world_center = viewport_center_in_world(rect, zoom, pan);
+
+        assert!((world_center.x - 350.0).abs() < 0.001);
+        assert!((world_center.y - 275.0).abs() < 0.001);
+    }
 }

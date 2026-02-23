@@ -7,7 +7,7 @@ use buswatch_types::Snapshot;
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 /// Key for identifying an edge (source module, target module, topic).
@@ -179,6 +179,16 @@ impl RateTracker {
     fn elapsed_secs(&self, now: Instant) -> Option<f64> {
         self.prev_time.map(|t| now.duration_since(t).as_secs_f64())
     }
+
+    /// Remove tracked edge state for modules no longer present in the graph.
+    fn prune_stale_modules(&mut self, active_modules: &HashSet<String>) {
+        self.prev_counts.retain(|(source, target, _), _| {
+            active_modules.contains(source) && active_modules.contains(target)
+        });
+        self.smoothed_rates.retain(|(source, target, _), _| {
+            active_modules.contains(source) && active_modules.contains(target)
+        });
+    }
 }
 
 /// The message flow graph.
@@ -245,6 +255,10 @@ impl MessageFlowGraph {
         self.last_update_ms = snapshot.timestamp_ms;
         let now = Instant::now();
         let elapsed_secs = self.rate_tracker.elapsed_secs(now);
+        let mut graph = DiGraph::new();
+        let mut module_indices = HashMap::new();
+        let active_modules: HashSet<String> =
+            snapshot.iter().map(|(name, _)| name.clone()).collect();
 
         // First pass: create/update all module nodes
         for (module_name, metrics) in snapshot.iter() {
@@ -287,38 +301,26 @@ impl MessageFlowGraph {
                 write_topics,
             };
 
-            if let Some(&idx) = self.module_indices.get(module_name) {
-                // Update existing node
-                self.graph[idx] = node;
-            } else {
-                // Add new node
-                let idx = self.graph.add_node(node);
-                self.module_indices.insert(module_name.clone(), idx);
-            }
+            let idx = graph.add_node(node);
+            module_indices.insert(module_name.clone(), idx);
         }
-
-        // Clear existing edges (we rebuild them each update)
-        self.graph.clear_edges();
 
         // Second pass: create edges based on topic connections
         // For each topic, connect producers to consumers
-        let mut topic_producers: HashMap<String, Vec<(NodeIndex, u64, Option<f64>)>> =
-            HashMap::new();
+        let mut topic_producers: HashMap<String, Vec<(String, u64, Option<f64>)>> = HashMap::new();
         #[allow(clippy::type_complexity)]
         let mut topic_consumers: HashMap<
             String,
-            Vec<(NodeIndex, u64, Option<u64>, Option<u64>, Option<f64>)>,
+            Vec<(String, u64, Option<u64>, Option<u64>, Option<f64>)>,
         > = HashMap::new();
 
         for (module_name, metrics) in snapshot.iter() {
-            let idx = self.module_indices[module_name];
-
             for (topic, write_metrics) in &metrics.writes {
                 if self.should_ignore_topic(topic) {
                     continue;
                 }
                 topic_producers.entry(topic.clone()).or_default().push((
-                    idx,
+                    module_name.clone(),
                     write_metrics.count,
                     write_metrics.rate,
                 ));
@@ -329,7 +331,7 @@ impl MessageFlowGraph {
                     continue;
                 }
                 topic_consumers.entry(topic.clone()).or_default().push((
-                    idx,
+                    module_name.clone(),
                     read_metrics.count,
                     read_metrics.backlog,
                     read_metrics.pending.map(|p| p.as_micros()),
@@ -341,16 +343,21 @@ impl MessageFlowGraph {
         // Create edges from producers to consumers
         for (topic, producers) in &topic_producers {
             if let Some(consumers) = topic_consumers.get(topic) {
-                for &(producer_idx, write_count, write_rate) in producers {
-                    for &(consumer_idx, read_count, backlog, pending_us, read_rate) in consumers {
-                        let health = self.compute_edge_health(backlog, pending_us);
-                        let message_count = write_count.max(read_count);
+                for (producer_name, write_count, write_rate) in producers {
+                    for (consumer_name, read_count, backlog, pending_us, read_rate) in consumers {
+                        let Some(&producer_idx) = module_indices.get(producer_name) else {
+                            continue;
+                        };
+                        let Some(&consumer_idx) = module_indices.get(consumer_name) else {
+                            continue;
+                        };
+
+                        let health = self.compute_edge_health(*backlog, *pending_us);
+                        let message_count = (*write_count).max(*read_count);
 
                         // Use provided rate, or infer from count delta with smoothing
-                        let rate = write_rate.or(read_rate).or_else(|| {
-                            let source_name = &self.graph[producer_idx].name;
-                            let target_name = &self.graph[consumer_idx].name;
-                            let key = (source_name.clone(), target_name.clone(), topic.clone());
+                        let rate = (*write_rate).or(*read_rate).or_else(|| {
+                            let key = (producer_name.clone(), consumer_name.clone(), topic.clone());
                             self.rate_tracker
                                 .calculate_rate(key, message_count, elapsed_secs)
                         });
@@ -359,16 +366,19 @@ impl MessageFlowGraph {
                             topic: topic.clone(),
                             message_count,
                             rate,
-                            backlog,
-                            pending_us,
+                            backlog: *backlog,
+                            pending_us: *pending_us,
                             health,
                         };
-                        self.graph.add_edge(producer_idx, consumer_idx, edge);
+                        graph.add_edge(producer_idx, consumer_idx, edge);
                     }
                 }
             }
         }
 
+        self.rate_tracker.prune_stale_modules(&active_modules);
+        self.graph = graph;
+        self.module_indices = module_indices;
         self.rate_tracker.mark_snapshot_time(now);
     }
 
@@ -544,6 +554,28 @@ mod tests {
 
         assert_eq!(graph.module_count(), 2);
         assert_eq!(graph.edge_count(), 1); // producer -> consumer via "events"
+    }
+
+    #[test]
+    fn test_modules_removed_when_missing_from_new_snapshot() {
+        let mut graph = MessageFlowGraph::new();
+
+        let initial = Snapshot::builder()
+            .timestamp_ms(1000)
+            .module("producer", |m| m.write("events", |w| w.count(100)))
+            .module("consumer", |m| m.read("events", |r| r.count(95).backlog(5)))
+            .build();
+        graph.update_from_snapshot(&initial);
+
+        let updated = Snapshot::builder()
+            .timestamp_ms(2000)
+            .module("consumer", |m| m.read("events", |r| r.count(96).backlog(4)))
+            .build();
+        graph.update_from_snapshot(&updated);
+
+        assert_eq!(graph.module_count(), 1);
+        assert!(graph.module_indices.contains_key("consumer"));
+        assert!(!graph.module_indices.contains_key("producer"));
     }
 
     #[test]
