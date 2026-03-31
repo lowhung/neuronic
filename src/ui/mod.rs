@@ -25,6 +25,7 @@ mod input;
 mod layout;
 mod panels;
 mod search;
+mod sound;
 pub mod state;
 mod theme;
 mod types;

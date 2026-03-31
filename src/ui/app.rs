@@ -14,6 +14,7 @@ use super::input::{self, KeyboardAction};
 use super::layout;
 use super::panels;
 use super::search;
+use super::sound::SoundEngine;
 use super::state::{
     AnimationState, ConnectionState, FilterState, InteractionState, UIPreferences, ViewState,
 };
@@ -36,6 +37,8 @@ pub struct NeuronicApp {
     pub filters: FilterState,
     /// UI display preferences.
     pub preferences: UIPreferences,
+    /// Sound engine for audio feedback (None if audio unavailable).
+    pub sound_engine: Option<SoundEngine>,
     /// Count of processed updates.
     pub update_count: u64,
 }
@@ -114,6 +117,7 @@ impl NeuronicApp {
             animation: AnimationState::default(),
             filters,
             preferences,
+            sound_engine: SoundEngine::new(),
             update_count: 0,
         }
     }
@@ -133,6 +137,10 @@ impl NeuronicApp {
             }
 
             if let Some(snapshot) = latest {
+                // Track pulse ring count before activity detection
+                let pulse_count_before: usize =
+                    self.animation.pulse_rings.values().map(|v| v.len()).sum();
+
                 animations::detect_activity(
                     &snapshot,
                     &mut self.animation.node_activity,
@@ -140,6 +148,31 @@ impl NeuronicApp {
                     &mut self.animation.pulse_rings,
                     self.preferences.show_pulse_rings,
                 );
+
+                // Play sounds for activity
+                if self.preferences.sound_enabled {
+                    if let Some(ref sound) = self.sound_engine {
+                        // Play ping if new pulse rings were created (heavy burst)
+                        let pulse_count_after: usize =
+                            self.animation.pulse_rings.values().map(|v| v.len()).sum();
+                        if pulse_count_after > pulse_count_before {
+                            sound.play_ping();
+                        }
+
+                        // Play warning for critical health nodes with high activity
+                        for node in self.connection.flow_graph.graph.node_weights() {
+                            if node.health == crate::graph::HealthStatus::Critical {
+                                if let Some(activity) = self.animation.node_activity.get(&node.name)
+                                {
+                                    if activity.fire_intensity > 0.8 {
+                                        sound.play_warning();
+                                        break; // Only play once per frame
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 self.connection.flow_graph.update_from_snapshot(&snapshot);
                 self.update_count += 1;
@@ -245,6 +278,17 @@ impl NeuronicApp {
             ui.checkbox(&mut self.preferences.show_minimap, "Minimap");
             ui.checkbox(&mut self.preferences.show_gradient_edges, "Gradient");
             ui.checkbox(&mut self.preferences.show_pulse_rings, "Pulses");
+
+            // Sound toggle (only show if audio is available)
+            if self.sound_engine.is_some() {
+                let mut sound_on = self.preferences.sound_enabled;
+                if ui.checkbox(&mut sound_on, "Sound").changed() {
+                    self.preferences.sound_enabled = sound_on;
+                    if let Some(ref mut engine) = self.sound_engine {
+                        engine.set_enabled(sound_on);
+                    }
+                }
+            }
 
             ui.separator();
 
